@@ -9,6 +9,12 @@ class Versions:
                                       "https://downloads.gtnewhorizons.com/Multi_mc_downloads/GT_New_Horizons_2.6.0_Java_17-21.zip")
             cls._instance.add_to_dict("2.6.1",
                                       "https://downloads.gtnewhorizons.com/Multi_mc_downloads/GT_New_Horizons_2.6.1_Java_17-21.zip")
+            cls._instance.add_to_dict("2.7.0",
+                                      "https://downloads.gtnewhorizons.com/Multi_mc_downloads/GT_New_Horizons_2.7.0_Java_17-21.zip")
+            cls._instance.add_to_dict("2.7.1",
+                                      "https://downloads.gtnewhorizons.com/Multi_mc_downloads/GT_New_Horizons_2.7.1_Java_17-21.zip")
+            cls._instance.add_to_dict("2.7.2",
+                                      "https://downloads.gtnewhorizons.com/ServerPacks/GT_New_Horizons_2.7.2_Server_Java_17-21.zip")
         return cls._instance
 
     def add_to_dict(self, key, value):

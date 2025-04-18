@@ -3,6 +3,10 @@ import tempfile
 import aiohttp
 import aiofiles
 import zipfile
+import logging
+
+
+logging.basicConfig(filename='app.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s')
 
 
 async def download(url, progress_callback=None):
@@ -46,6 +50,7 @@ def install(path, downloaded_file_path, progress_callback=None):
         extracted_files = 0
 
         for file in zip_ref.infolist():
+            logging.info(f'Extracting file: {file.filename}')
             zip_ref.extract(file, instances_path)
             extracted_files += 1
 
