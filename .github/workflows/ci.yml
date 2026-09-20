@@ -31,6 +31,21 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p patch-core -p modpackctl
       - run: cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
+      - name: Resolve live TFG client/server profiles
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          ROOT="$RUNNER_TEMP/tfg-smoke"
+          mkdir -p "$ROOT/mods" "$ROOT/config" "$ROOT/kubejs"
+
+          cargo run --quiet -p modpackctl -- plan --tfg --target client --root "$ROOT" --json > "$RUNNER_TEMP/tfg-client.json"
+          cargo run --quiet -p modpackctl -- plan --tfg --target server --root "$ROOT" --json > "$RUNNER_TEMP/tfg-server.json"
+
+          jq -e '[.items[] | select(.kind == "installFile")] | length == 7' "$RUNNER_TEMP/tfg-client.json"
+          jq -e '[.items[] | select(.kind == "installFile")] | length == 6' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'any(.items[]; .detail == "Install verified artifact openui")' "$RUNNER_TEMP/tfg-client.json"
+          jq -e 'all(.items[]; .detail != "Install verified artifact openui")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'any(.items[]; .path == "mods/createhorsepower-*.jar")' "$RUNNER_TEMP/tfg-server.json"
 
   tauri-windows:
     runs-on: windows-latest

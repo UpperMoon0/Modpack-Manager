@@ -1,18 +1,37 @@
 use anyhow::{bail, Context, Result};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION};
 use reqwest::Client;
 use std::path::{Component, Path, PathBuf};
 use url::Url;
 
-fn http_client() -> Result<Client> {
+fn http_client(source: &str) -> Result<Client> {
+    let mut headers = HeaderMap::new();
+
+    if source.starts_with("https://api.github.com/") {
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_static("application/vnd.github+json"),
+        );
+
+        if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+            if !token.trim().is_empty() {
+                let value = HeaderValue::from_str(&format!("Bearer {token}"))
+                    .context("GITHUB_TOKEN contains invalid header characters")?;
+                headers.insert(AUTHORIZATION, value);
+            }
+        }
+    }
+
     Client::builder()
         .user_agent("Modpack-Manager/1.0 (+https://github.com/UpperMoon0/Modpack-Manager)")
+        .default_headers(headers)
         .build()
         .context("failed to create HTTP client")
 }
 
 pub async fn load_text(source: &str) -> Result<String> {
     if is_http(source) {
-        let response = http_client()?
+        let response = http_client(source)?
             .get(source)
             .send()
             .await
@@ -30,7 +49,7 @@ pub async fn load_text(source: &str) -> Result<String> {
 
 pub async fn load_bytes(source: &str) -> Result<Vec<u8>> {
     if is_http(source) {
-        let response = http_client()?
+        let response = http_client(source)?
             .get(source)
             .send()
             .await
