@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-client:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm install --no-audit --no-fund
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Modpack Manager ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false
+
+  linux-server-cli:
+    needs: windows-client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p modpackctl
+      - name: Package server CLI
+        run: |
+          mkdir -p dist
+          cp target/release/modpackctl dist/
+          cp scripts/patch-server.sh dist/
+          tar -C dist -czf modpackctl-linux-x86_64.tar.gz modpackctl patch-server.sh
+          sha256sum modpackctl-linux-x86_64.tar.gz > modpackctl-linux-x86_64.tar.gz.sha256
+      - name: Upload to draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            modpackctl-linux-x86_64.tar.gz \
+            modpackctl-linux-x86_64.tar.gz.sha256 \
+            --clobber

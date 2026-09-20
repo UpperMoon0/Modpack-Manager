@@ -1,0 +1,9 @@
+node_modules/
+dist/
+target/
+.DS_Store
+*.log
+*.tmp
+.env
+src-tauri/gen/
+.modpack-manager/
