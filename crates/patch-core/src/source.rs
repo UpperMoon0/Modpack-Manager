@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use url::Url;
 
 pub async fn load_text(source: &str) -> Result<String> {
@@ -58,7 +58,25 @@ pub fn resolve_artifact_source(manifest_source: &str, artifact_source: &str) -> 
 
     let manifest_path = local_source_path(manifest_source)?;
     let parent = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    Ok(parent.join(artifact_source).to_string_lossy().into_owned())
+    Ok(normalize_local_path(parent.join(artifact_source))
+        .to_string_lossy()
+        .into_owned())
+}
+
+fn normalize_local_path(path: PathBuf) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
 }
 
 fn is_http(source: &str) -> bool {
