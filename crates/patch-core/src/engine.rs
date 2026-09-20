@@ -703,11 +703,11 @@ fn set_toml_value(
 
     let mut table = document.as_table_mut();
     for part in parents {
-        if !table.contains_key(*part) {
-            table.insert(*part, Item::Table(Table::new()));
+        if !table.contains_key(part) {
+            table.insert(part, Item::Table(Table::new()));
         }
         table = table
-            .get_mut(*part)
+            .get_mut(part)
             .and_then(Item::as_table_mut)
             .with_context(|| format!("TOML path component {part:?} is not a table"))?;
     }
@@ -730,7 +730,7 @@ fn set_toml_value(
         _ => bail!("patchToml supports only scalar boolean, numeric, and string values"),
     };
 
-    table.insert(*leaf, item);
+    table.insert(leaf, item);
     Ok(())
 }
 
