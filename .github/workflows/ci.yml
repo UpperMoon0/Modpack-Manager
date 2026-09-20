@@ -36,7 +36,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           ROOT="$RUNNER_TEMP/tfg-smoke"
-          mkdir -p "$ROOT/mods" "$ROOT/config" "$ROOT/kubejs"
+          mkdir -p "$ROOT/mods" "$ROOT/config" "$ROOT/kubejs" "$ROOT/defaultconfigs"
+          : > "$ROOT/defaultconfigs/createhorsepower-server.toml"
 
           cargo run --quiet -p modpackctl -- plan --tfg --target client --root "$ROOT" --json > "$RUNNER_TEMP/tfg-client.json"
           cargo run --quiet -p modpackctl -- plan --tfg --target server --root "$ROOT" --json > "$RUNNER_TEMP/tfg-server.json"
@@ -46,6 +47,11 @@ jobs:
           jq -e 'any(.items[]; .detail == "Install verified artifact openui")' "$RUNNER_TEMP/tfg-client.json"
           jq -e 'all(.items[]; .detail != "Install verified artifact openui")' "$RUNNER_TEMP/tfg-server.json"
           jq -e 'any(.items[]; .path == "mods/createhorsepower-*.jar")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'any(.items[]; .kind == "writeText" and .path == "kubejs/server_scripts/create_horse_power/recipes.js")' "$RUNNER_TEMP/tfg-client.json"
+          jq -e 'any(.items[]; .kind == "writeText" and .path == "kubejs/server_scripts/create_horse_power/recipes.js")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'any(.items[]; .kind == "patchToml" and .path == "defaultconfigs/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-client.json"
+          jq -e 'any(.items[]; .kind == "patchToml" and .path == "defaultconfigs/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'any(.items[]; .kind == "patchToml" and .path == "world/serverconfig/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
 
   tauri-windows:
     runs-on: windows-latest
