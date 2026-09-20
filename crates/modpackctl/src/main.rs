@@ -1,7 +1,8 @@
-use anyhow::Result;
-use clap::{Parser, Subcommand, ValueEnum};
+use anyhow::{bail, Result};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use patch_core::{
-    apply_manifest, load_manifest, plan_manifest, read_state, PatchProgress, ProgressCallback, Target,
+    apply_manifest, load_manifest, load_patch_channel, plan_manifest, read_state, PatchProgress,
+    ProgressCallback, Target,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,11 +14,37 @@ struct Cli {
     command: Command,
 }
 
+#[derive(Args)]
+struct PatchSource {
+    #[arg(long, conflicts_with = "channel", required_unless_present = "channel")]
+    manifest: Option<String>,
+
+    #[arg(long, conflicts_with = "manifest", required_unless_present = "manifest")]
+    channel: Option<String>,
+}
+
+impl PatchSource {
+    async fn resolve(self) -> Result<String> {
+        match (self.manifest, self.channel) {
+            (Some(manifest), None) => Ok(manifest),
+            (None, Some(channel)) => {
+                let resolved = load_patch_channel(&channel).await?;
+                eprintln!(
+                    "Resolved channel {} -> patch {}",
+                    resolved.name, resolved.version
+                );
+                Ok(resolved.manifest_source)
+            }
+            _ => bail!("provide exactly one of --manifest or --channel"),
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     Plan {
-        #[arg(long)]
-        manifest: String,
+        #[command(flatten)]
+        source: PatchSource,
         #[arg(long)]
         root: PathBuf,
         #[arg(long, value_enum, default_value = "server")]
@@ -26,8 +53,8 @@ enum Command {
         json: bool,
     },
     Apply {
-        #[arg(long)]
-        manifest: String,
+        #[command(flatten)]
+        source: PatchSource,
         #[arg(long)]
         root: PathBuf,
         #[arg(long, value_enum, default_value = "server")]
@@ -64,12 +91,13 @@ impl From<CliTarget> for Target {
 async fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Plan {
-            manifest,
+            source,
             root,
             target,
             json,
         } => {
-            let patch = load_manifest(&manifest).await?;
+            let manifest_source = source.resolve().await?;
+            let patch = load_manifest(&manifest_source).await?;
             let plan = plan_manifest(&patch, &root, target.into())?;
 
             if json {
@@ -91,12 +119,13 @@ async fn main() -> Result<()> {
             }
         }
         Command::Apply {
-            manifest,
+            source,
             root,
             target,
             json,
         } => {
-            let patch = load_manifest(&manifest).await?;
+            let manifest_source = source.resolve().await?;
+            let patch = load_manifest(&manifest_source).await?;
             let progress: ProgressCallback = Arc::new(|event: PatchProgress| {
                 eprintln!(
                     "[{:?}] {}/{} {}",
@@ -104,8 +133,14 @@ async fn main() -> Result<()> {
                 );
             });
 
-            let result =
-                apply_manifest(&patch, &manifest, &root, target.into(), Some(progress)).await?;
+            let result = apply_manifest(
+                &patch,
+                &manifest_source,
+                &root,
+                target.into(),
+                Some(progress),
+            )
+            .await?;
 
             if json {
                 println!("{}", serde_json::to_string_pretty(&result)?);

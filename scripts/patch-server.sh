@@ -2,19 +2,21 @@
 set -euo pipefail
 
 ROOT="${MODPACK_ROOT:-${1:-}}"
-MANIFEST="${PATCH_MANIFEST:-${2:-}}"
+CHANNEL="${PATCH_CHANNEL:-${2:-}}"
+MANIFEST="${PATCH_MANIFEST:-}"
 MODPACKCTL="${MODPACKCTL:-modpackctl}"
 
-if [[ -z "$ROOT" || -z "$MANIFEST" ]]; then
+if [[ -z "$ROOT" ]]; then
   cat >&2 <<'USAGE'
 Usage:
-  patch-server.sh <server-root> <manifest-url-or-file>
+  patch-server.sh <server-root> <channel-url-or-file>
 
-Or set:
+Preferred environment:
   MODPACK_ROOT=/srv/tfg
-  PATCH_MANIFEST=https://example.com/tfg/patch.json
+  PATCH_CHANNEL=https://example.com/tfg/channel.json
   MODPACKCTL=/usr/local/bin/modpackctl
 
+PATCH_MANIFEST is also supported for pinning one exact manifest.
 Set DRY_RUN=1 to preview without changing files.
 USAGE
   exit 2
@@ -25,9 +27,19 @@ if ! command -v "$MODPACKCTL" >/dev/null 2>&1; then
   exit 127
 fi
 
-if [[ "${DRY_RUN:-0}" == "1" ]]; then
-  exec "$MODPACKCTL" plan --target server --root "$ROOT" --manifest "$MANIFEST"
+SOURCE_ARGS=()
+if [[ -n "$MANIFEST" ]]; then
+  SOURCE_ARGS=(--manifest "$MANIFEST")
+elif [[ -n "$CHANNEL" ]]; then
+  SOURCE_ARGS=(--channel "$CHANNEL")
+else
+  echo "Set PATCH_CHANNEL (preferred), PATCH_MANIFEST, or pass the channel as argument 2." >&2
+  exit 2
 fi
 
-"$MODPACKCTL" plan --target server --root "$ROOT" --manifest "$MANIFEST"
-exec "$MODPACKCTL" apply --target server --root "$ROOT" --manifest "$MANIFEST"
+if [[ "${DRY_RUN:-0}" == "1" ]]; then
+  exec "$MODPACKCTL" plan --target server --root "$ROOT" "${SOURCE_ARGS[@]}"
+fi
+
+"$MODPACKCTL" plan --target server --root "$ROOT" "${SOURCE_ARGS[@]}"
+exec "$MODPACKCTL" apply --target server --root "$ROOT" "${SOURCE_ARGS[@]}"
