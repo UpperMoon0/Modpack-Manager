@@ -91,13 +91,19 @@ Build:
 
     cargo build --release -p modpackctl
 
-Apply the same manifest the client channel points at:
+Follow the same stable channel as the desktop clients:
 
-    ./scripts/patch-server.sh /srv/tfg https://example.com/tfg/tfg.patch.json
+    ./scripts/patch-server.sh /srv/tfg https://example.com/tfg/channel.json
+
+or:
+
+    MODPACK_ROOT=/srv/tfg PATCH_CHANNEL=https://example.com/tfg/channel.json ./scripts/patch-server.sh
+
+The CLI resolves the newest manifest on every run. An exact manifest can still be pinned with `PATCH_MANIFEST` or `modpackctl --manifest`.
 
 Preview only:
 
-    DRY_RUN=1 ./scripts/patch-server.sh /srv/tfg https://example.com/tfg/tfg.patch.json
+    DRY_RUN=1 ./scripts/patch-server.sh /srv/tfg https://example.com/tfg/channel.json
 
 Recommended update order:
 
@@ -127,7 +133,7 @@ CI additionally builds the native Windows Tauri app.
 ## Repository layout
 
     crates/patch-core/   channel resolver + shared patch/backup/rollback engine
-    crates/modpackctl/   headless/server CLI
+    crates/modpackctl/   headless/server CLI with manifest or stable-channel sources
     src/                 React + TypeScript player UI and background update checks
     src-tauri/           Tauri shell and signed self-updater
     scripts/             server helpers + release preparation
