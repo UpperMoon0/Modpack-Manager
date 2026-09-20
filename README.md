@@ -1,149 +1,134 @@
 # Modpack Manager
 
-A manifest-driven patch manager for modpacks.
+A manifest-driven modpack update and patch manager.
 
-This repository is a full replacement for the old GT New Horizons PyQt installer. The new system has one patch engine and two front ends:
+The old GT New Horizons PyQt installer has been replaced by one Rust patch engine with two front ends:
 
-- modpackctl: a headless Rust CLI for servers and automation.
-- Tauri + React + TypeScript: a desktop patcher for players.
+- **modpackctl** — headless CLI for servers and automation.
+- **Tauri + React + TypeScript** — desktop client for players.
 
-Both use the same patch-core crate. A patch manifest therefore has one meaning on the server and on every client.
+The server and desktop client consume the same remote patch data, so a TFG update is published once and discovered everywhere.
 
-## Why
+## Update architecture
 
-Updating an upstream pack such as TFG should not mean manually copying custom mods, KubeJS scripts and configuration back into the server and telling every player to repeat the same fragile steps.
+There are deliberately two independent update layers.
 
-The intended flow is:
+### 1. Modpack patch channel
 
-1. Update the upstream pack.
-2. Publish the custom patch artifacts.
-3. Bump one JSON manifest and its SHA-256 values.
-4. Run the server patch script.
-5. Players open Modpack Manager, preview the same manifest and apply it.
+Players configure one stable channel URL once. It can be hosted as a GitHub Release asset, raw GitHub file, CDN object, or any HTTPS resource.
 
-## Safety model
+Example:
+
+    https://github.com/owner/tfg-patches/releases/latest/download/channel.json
+
+A channel is tiny metadata that points to the current patch manifest:
+
+    {
+      "schemaVersion": 1,
+      "id": "tfg-nstut-stable",
+      "name": "TFG NsTut Stable",
+      "checkIntervalMinutes": 30,
+      "latest": {
+        "version": "2026.09.20.1",
+        "manifest": "./tfg.patch.json",
+        "notes": "Custom TFG compatibility layer."
+      }
+    }
+
+The desktop client checks this channel on startup and periodically in the background. The channel URL does not change when a new TFG patch is published. Update the remote channel JSON, manifest and payloads; installed clients discover the new patch without a new Modpack Manager build.
+
+Relative manifest and artifact URLs are supported. This makes GitHub Release assets convenient: upload `channel.json`, `tfg.patch.json`, JARs and patch ZIPs to one release.
+
+`VITE_DEFAULT_PATCH_CHANNEL` can be set at build time to preconfigure a distribution so ordinary players never have to enter the channel URL.
+
+See `examples/tfg.channel.example.json` and `examples/tfg.patch.example.json`.
+
+### 2. Modpack Manager self-update
+
+The desktop app uses Tauri's updater plugin against:
+
+    https://github.com/UpperMoon0/Modpack-Manager/releases/latest/download/latest.json
+
+It checks shortly after launch and every six hours. When a newer app exists, the UI offers **Install update**. The app downloads, verifies and installs the signed update itself; players do not need to download or reinstall a new frontend manually.
+
+Updater artifacts are cryptographically signed. The public key is embedded in `src-tauri/tauri.conf.json`; the private key must exist only in release CI as `TAURI_SIGNING_PRIVATE_KEY`. `requireSignedVersion` is enabled so the signed artifact is bound to the advertised application version.
+
+For tag releases, add repository secrets:
+
+- `TAURI_SIGNING_PRIVATE_KEY` — contents of the private updater key.
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — blank for the current unencrypted CI key, or the password if the key is replaced with an encrypted one.
+
+Tagging `vX.Y.Z` runs the release workflow, applies that version to the Tauri/package/Cargo metadata, enables updater artifacts for the release build, publishes the Windows installer plus signed updater artifacts and `latest.json`, then uploads the Linux server CLI.
+
+## Patch safety model
 
 Patch manifests are data, not shell scripts. They cannot execute arbitrary commands.
 
 Supported operations:
 
-- removeMatching: remove obsolete files or directories by a relative glob.
-- installFile: install a SHA-256 verified artifact at an exact relative path.
-- extractZip: replace or merge a directory from a verified ZIP.
-- writeText: write a manifest-managed text or config file.
+- `removeMatching` — remove obsolete files or directories by a relative glob.
+- `installFile` — install a SHA-256 verified artifact at an exact relative path.
+- `extractZip` — replace or merge a directory from a verified ZIP.
+- `writeText` — write a manifest-managed text/config file.
 
 The engine also:
 
 - rejects absolute paths and parent traversal;
-- blocks writes into .modpack-manager metadata;
+- blocks writes into `.modpack-manager` metadata;
 - refuses modpack roots and destination components that are symlinks;
 - rejects ZIP traversal and ZIP symlink entries;
-- verifies all referenced artifacts before changing the modpack;
+- downloads and verifies all referenced artifacts before changing the modpack;
 - serializes patch runs with a per-installation lock;
-- backs up touched paths under .modpack-manager/backups;
+- backs up touched paths under `.modpack-manager/backups`;
 - automatically rolls files back when a later operation fails;
 - records client and server patch state separately.
 
-## Manifest
-
-See examples/tfg.patch.example.json.
-
-Operations with no targets apply to both sides. Otherwise use client and/or server.
-
-requiredPaths guards against selecting the wrong Minecraft directory. Relative artifact URLs are supported, so a manifest and its payloads can live together in one release/static directory.
+For overlay archives such as custom KubeJS files, use `cleanDestination: false` so unrelated upstream scripts are preserved. Use `cleanDestination: true` only when the patch owns the entire destination directory. Explicit `removeMatching` operations can remove obsolete managed paths when needed.
 
 ## Server
 
-Build the CLI:
+Build:
 
     cargo build --release -p modpackctl
 
-Install modpackctl on the server PATH, then run:
+Apply the same manifest the client channel points at:
 
-    ./scripts/patch-server.sh /srv/tfg https://example.com/tfg/patch.json
-
-Environment-variable form:
-
-    export MODPACK_ROOT=/srv/tfg
-    export PATCH_MANIFEST=https://example.com/tfg/patch.json
-    ./scripts/patch-server.sh
+    ./scripts/patch-server.sh /srv/tfg https://example.com/tfg/tfg.patch.json
 
 Preview only:
 
-    DRY_RUN=1 ./scripts/patch-server.sh
+    DRY_RUN=1 ./scripts/patch-server.sh /srv/tfg https://example.com/tfg/tfg.patch.json
 
-Recommended server update order:
+Recommended update order:
 
     stop server
-    replace/update the upstream TFG server pack
+    update/replace upstream TFG server files
     run patch-server.sh
     start server
 
-If patching fails, the script exits non-zero. Keep the server stopped instead of starting a half-patched pack.
+If patching fails, the command exits non-zero and restores the touched files from backup.
 
 ## Player app
-
-The desktop app asks for a patch manifest URL and the modpack game directory. It shows the exact change plan before applying anything and remembers the last source/directory locally.
 
 Development:
 
     npm install
     npm run tauri dev
 
-Production installer:
-
-    npm run tauri build
-
-## Authoring TFG patches
-
-For a custom mod, remove old versions and install one exact verified JAR:
-
-    {
-      "type": "removeMatching",
-      "pattern": "mods/MyCustomMod-*.jar",
-      "targets": ["client", "server"]
-    }
-
-followed by an installFile operation for the new JAR.
-
-For KubeJS or another script tree, build a deterministic ZIP:
-
-    ./scripts/make-patch-archive.sh ./my-kubejs ./dist/kubejs.zip
-
-Then use extractZip with cleanDestination true. This matters: scripts deleted from your patch source also disappear from the installation instead of surviving as stale files.
-
-Client-only visual mods can target client. Dedicated-server scripts or mods can target server.
-
-## CLI
-
-Preview:
-
-    modpackctl plan --target server --root /srv/tfg --manifest https://example.com/tfg/patch.json
-
-Apply:
-
-    modpackctl apply --target server --root /srv/tfg --manifest https://example.com/tfg/patch.json
-
-Status:
-
-    modpackctl status --target server --root /srv/tfg
-
-All three commands support --json.
-
-## Layout
-
-    crates/patch-core/   shared patch schema, planning, checksum, backup and rollback engine
-    crates/modpackctl/   headless/server CLI
-    src/                 React + TypeScript player UI
-    src-tauri/           Tauri native shell
-    scripts/             server and patch-authoring helpers
-    examples/            sample manifests
-
-## Validation
+Normal CI:
 
     npm test
     npm run build
     cargo test -p patch-core -p modpackctl
     cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
 
-CI additionally builds the real Tauri app on Windows. Tag releases create the Windows player bundle and a Linux modpackctl server archive.
+CI additionally builds the native Windows Tauri app.
+
+## Repository layout
+
+    crates/patch-core/   channel resolver + shared patch/backup/rollback engine
+    crates/modpackctl/   headless/server CLI
+    src/                 React + TypeScript player UI and background update checks
+    src-tauri/           Tauri shell and signed self-updater
+    scripts/             server helpers + release preparation
+    examples/            channel and patch manifest examples

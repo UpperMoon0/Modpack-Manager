@@ -35,3 +35,13 @@ export interface PatchProgress {
   current: number;
   total: number;
 }
+
+export interface ResolvedPatchChannel {
+  id: string;
+  name: string;
+  checkIntervalMinutes: number;
+  version: string;
+  manifestSource: string;
+  notes: string;
+  publishedAt: string | null;
+}

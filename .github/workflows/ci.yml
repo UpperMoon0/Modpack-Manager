@@ -19,6 +19,7 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npm test
       - run: npm run build
+      - run: node --check scripts/prepare-release.mjs
 
   rust:
     runs-on: ubuntu-latest

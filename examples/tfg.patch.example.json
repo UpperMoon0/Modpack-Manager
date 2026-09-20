@@ -11,13 +11,13 @@
   "artifacts": [
     {
       "id": "custom-economy-mod",
-      "url": "https://example.invalid/patches/Economy-0.1.0.jar",
+      "url": "./Economy-0.1.0.jar",
       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "fileName": "Economy-0.1.0.jar"
     },
     {
       "id": "kubejs-overrides",
-      "url": "https://example.invalid/patches/kubejs-overrides.zip",
+      "url": "./kubejs-overrides.zip",
       "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "fileName": "kubejs-overrides.zip"
     }
@@ -38,7 +38,7 @@
       "type": "extractZip",
       "artifact": "kubejs-overrides",
       "destination": "kubejs",
-      "cleanDestination": true,
+      "cleanDestination": false,
       "targets": ["client", "server"]
     },
     {

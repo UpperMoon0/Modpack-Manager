@@ -19,14 +19,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: npm install --no-audit --no-fund
-      - uses: tauri-apps/tauri-action@v0
+      - name: Prepare tagged app version and updater artifacts
+        run: node scripts/prepare-release.mjs "${{ github.ref_name }}"
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Modpack Manager ${{ github.ref_name }}"
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
+          uploadUpdaterSignatures: true
 
   linux-server-cli:
     needs: windows-client
@@ -42,7 +47,7 @@ jobs:
           cp scripts/patch-server.sh dist/
           tar -C dist -czf modpackctl-linux-x86_64.tar.gz modpackctl patch-server.sh
           sha256sum modpackctl-linux-x86_64.tar.gz > modpackctl-linux-x86_64.tar.gz.sha256
-      - name: Upload to draft release
+      - name: Upload to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

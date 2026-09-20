@@ -15,7 +15,7 @@
         "label": "main",
         "title": "Modpack Manager",
         "width": 980,
-        "height": 820,
+        "height": 860,
         "minWidth": 720,
         "minHeight": 620,
         "resizable": true,
@@ -28,6 +28,19 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgOTM3QjVBM0Y3RTMwOTVDMApSV1RBbFRCK1AxcDdrMnpKRkxEVnZEZFhRZmg4Qk1sc0I1STZDcnpGYjBEeEk4NG5Za1NsWHFCNwo=",
+      "endpoints": [
+        "https://github.com/UpperMoon0/Modpack-Manager/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

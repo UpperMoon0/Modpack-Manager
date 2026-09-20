@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "tfg-nstut-stable",
+  "name": "TFG NsTut Stable",
+  "checkIntervalMinutes": 30,
+  "latest": {
+    "version": "2026.09.20.1",
+    "manifest": "./tfg.patch.json",
+    "notes": "Custom TFG mod and script compatibility layer.",
+    "publishedAt": "2026-09-20T15:00:00Z"
+  }
+}

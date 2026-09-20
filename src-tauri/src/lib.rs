@@ -1,10 +1,15 @@
 use patch_core::{
-    apply_manifest, load_manifest, plan_manifest, read_state, ApplyResult, PatchPlan, PatchProgress,
-    PatchState, ProgressCallback, Target,
+    apply_manifest, load_manifest, load_patch_channel, plan_manifest, read_state, ApplyResult,
+    PatchPlan, PatchProgress, PatchState, ProgressCallback, ResolvedPatchChannel, Target,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
+
+#[tauri::command]
+async fn resolve_patch_channel(source: String) -> Result<ResolvedPatchChannel, String> {
+    load_patch_channel(&source).await.map_err(format_error)
+}
 
 #[tauri::command]
 async fn plan_patch(manifest_source: String, root: String) -> Result<PatchPlan, String> {
@@ -53,7 +58,10 @@ fn format_error(error: anyhow::Error) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            resolve_patch_channel,
             plan_patch,
             apply_patch,
             read_patch_state
