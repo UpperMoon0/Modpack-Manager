@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use serde_json::Value as JsonValue;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -74,6 +75,14 @@ pub enum Operation {
         #[serde(default)]
         targets: Vec<Target>,
     },
+    PatchToml {
+        destination: String,
+        values: BTreeMap<String, JsonValue>,
+        #[serde(default)]
+        skip_if_missing: bool,
+        #[serde(default)]
+        targets: Vec<Target>,
+    },
 }
 
 fn default_true() -> bool {
@@ -86,7 +95,8 @@ impl Operation {
             Self::RemoveMatching { targets, .. }
             | Self::InstallFile { targets, .. }
             | Self::ExtractZip { targets, .. }
-            | Self::WriteText { targets, .. } => targets,
+            | Self::WriteText { targets, .. }
+            | Self::PatchToml { targets, .. } => targets,
         }
     }
 
@@ -153,10 +163,7 @@ pub fn validate_manifest(manifest: &PatchManifest) -> Result<()> {
                 ..
             } => {
                 ensure_artifact_exists(artifact, &ids)?;
-                validate_destination(destination)?;
-                if destination.trim().is_empty() || destination == "." {
-                    bail!("installFile destination must name a file");
-                }
+                validate_file_destination(destination, "installFile")?;
             }
             Operation::ExtractZip {
                 artifact,
@@ -170,9 +177,21 @@ pub fn validate_manifest(manifest: &PatchManifest) -> Result<()> {
                 }
             }
             Operation::WriteText { destination, .. } => {
-                validate_destination(destination)?;
-                if destination.trim().is_empty() || destination == "." {
-                    bail!("writeText destination must name a file");
+                validate_file_destination(destination, "writeText")?;
+            }
+            Operation::PatchToml {
+                destination,
+                values,
+                ..
+            } => {
+                validate_file_destination(destination, "patchToml")?;
+                if values.is_empty() {
+                    bail!("patchToml values cannot be empty");
+                }
+                for (key, value) in values {
+                    validate_toml_key(key)?;
+                    validate_toml_value(value)
+                        .with_context(|| format!("invalid patchToml value for {key:?}"))?;
                 }
             }
         }
@@ -225,6 +244,14 @@ fn validate_destination(value: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_file_destination(value: &str, operation: &str) -> Result<()> {
+    validate_destination(value)?;
+    if value.trim().is_empty() || value == "." {
+        bail!("{operation} destination must name a file");
+    }
+    Ok(())
+}
+
 fn validate_pattern(value: &str) -> Result<()> {
     validate_relative_path(value)?;
     if value.trim().is_empty() || value == "." {
@@ -235,6 +262,29 @@ fn validate_pattern(value: &str) -> Result<()> {
     }
     globset::Glob::new(value).context("invalid removeMatching glob")?;
     Ok(())
+}
+
+fn validate_toml_key(value: &str) -> Result<()> {
+    if value.trim().is_empty() {
+        bail!("TOML key cannot be empty");
+    }
+    for segment in value.split('.') {
+        if segment.is_empty()
+            || !segment
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+        {
+            bail!("TOML dotted key contains unsafe characters");
+        }
+    }
+    Ok(())
+}
+
+fn validate_toml_value(value: &JsonValue) -> Result<()> {
+    match value {
+        JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => Ok(()),
+        _ => bail!("patchToml supports only boolean, numeric, and string scalar values"),
+    }
 }
 
 fn manager_path(value: &str) -> bool {

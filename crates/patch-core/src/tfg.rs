@@ -3,10 +3,89 @@ use crate::source::{load_bytes, load_text};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 const GITHUB_RELEASE_LIMIT: usize = 30;
 const EXTRA_GAUGES_PROJECT: &str = "extra-gauges";
+
+const TFG_PROFILE_POLICY_VERSION: &str = "2026-09-21-horsepower-config-v1";
+const TFG_HORSE_POWER_RECIPE: &str = r#"// priority: 0
+"use strict";
+
+function registerCreateHorsePowerBlockRecipes(event) {
+
+	event.remove({id: 'createhorsepower:horse_crank' })
+
+	event.shaped('createhorsepower:horse_crank', [
+		' A ',
+		'EBD',
+		'CCC'
+	], {
+		A: '#forge:fences/wooden',
+		B: '#forge:small_gears/bronze',
+		C: '#tfc:rock/raw',
+		D: '#forge:tools/hammers',
+		E: '#forge:tools/saws'
+	}).id('tfg:shaped/horse_crank_bronze')
+
+	event.shaped('createhorsepower:horse_crank', [
+		' A ',
+		'EBD',
+		'CCC'
+	], {
+		A: '#forge:fences/wooden',
+		B: '#forge:small_gears/bismuth_bronze',
+		C: '#tfc:rock/raw',
+		D: '#forge:tools/hammers',
+		E: '#forge:tools/saws'
+	}).id('tfg:shaped/horse_crank_bismuth_bronze')
+
+	event.shaped('createhorsepower:horse_crank', [
+		' A ',
+		'EBD',
+		'CCC'
+	], {
+		A: '#forge:fences/wooden',
+		B: '#forge:small_gears/black_bronze',
+		C: '#tfc:rock/raw',
+		D: '#forge:tools/hammers',
+		E: '#forge:tools/saws'
+	}).id('tfg:shaped/horse_crank_black_bronze')
+}
+"#;
+
+fn horse_power_config_values() -> BTreeMap<String, serde_json::Value> {
+    let mut values = BTreeMap::new();
+    values.insert("creatureRPMRange".into(), 16.into());
+    values.insert("smallCreatureStressRange".into(), 16.into());
+    values.insert("mediumCreatureStressRange".into(), 24.into());
+    values.insert("largeCreatureStressRange".into(), 32.into());
+    values.insert("poorMultiplier".into(), serde_json::Value::from(0.5));
+    values.insert("normalMultiplier".into(), serde_json::Value::from(1.0));
+    values.insert("greatMultiplier".into(), serde_json::Value::from(2.0));
+    values.insert(
+        "balance.globalRpmMultiplier".into(),
+        serde_json::Value::from(1.0),
+    );
+    values.insert(
+        "balance.globalStressMultiplier".into(),
+        serde_json::Value::from(1.0),
+    );
+    values.insert(
+        "balance.enableIndividualAnimalStats".into(),
+        serde_json::Value::from(false),
+    );
+    values.insert(
+        "path.evaluationMode".into(),
+        serde_json::Value::from("LEGACY"),
+    );
+    values.insert(
+        "path.minimumCoverage".into(),
+        serde_json::Value::from(1.0),
+    );
+    values
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -325,11 +404,40 @@ fn build_tfg_patch(mods: Vec<TfgResolvedMod>) -> TfgResolvedPatch {
         });
     }
 
-    let identity = mods
-        .iter()
-        .map(|managed| format!("{}={}:{}", managed.id, managed.version, managed.sha256))
-        .collect::<Vec<_>>()
-        .join("|");
+    operations.push(Operation::WriteText {
+        destination: "kubejs/server_scripts/create_horse_power/recipes.js".into(),
+        content: TFG_HORSE_POWER_RECIPE.into(),
+        targets: both.clone(),
+    });
+
+    let horse_power_config = horse_power_config_values();
+    operations.push(Operation::PatchToml {
+        destination: "defaultconfigs/createhorsepower-server.toml".into(),
+        values: horse_power_config.clone(),
+        skip_if_missing: false,
+        targets: both.clone(),
+    });
+    operations.push(Operation::PatchToml {
+        destination: "world/serverconfig/createhorsepower-server.toml".into(),
+        values: horse_power_config.clone(),
+        skip_if_missing: true,
+        targets: vec![Target::Server],
+    });
+    operations.push(Operation::PatchToml {
+        destination: "serverconfig/createhorsepower-server.toml".into(),
+        values: horse_power_config,
+        skip_if_missing: true,
+        targets: vec![Target::Server],
+    });
+
+    let identity = format!(
+        "{}|{}",
+        TFG_PROFILE_POLICY_VERSION,
+        mods.iter()
+            .map(|managed| format!("{}={}:{}", managed.id, managed.version, managed.sha256))
+            .collect::<Vec<_>>()
+            .join("|")
+    );
     let fingerprint = hex::encode(Sha256::digest(identity.as_bytes()));
 
     TfgResolvedPatch {
@@ -339,7 +447,12 @@ fn build_tfg_patch(mods: Vec<TfgResolvedMod>) -> TfgResolvedPatch {
             name: "TFG NsTut Managed Mods".into(),
             version: format!("1.20.1-{}", &fingerprint[..12]),
             description: "Latest compatible Forge 1.20.1 managed mod set for TFG.".into(),
-            required_paths: vec!["mods".into(), "config".into(), "kubejs".into()],
+            required_paths: vec![
+                "mods".into(),
+                "config".into(),
+                "kubejs".into(),
+                "defaultconfigs/createhorsepower-server.toml".into(),
+            ],
             artifacts,
             operations,
         },
@@ -474,6 +587,32 @@ mod tests {
             Operation::RemoveMatching { pattern, targets }
                 if pattern == "mods/openui-mc-*.jar"
                     && targets.contains(&Target::Server)
+        )));
+
+        assert!(patch.manifest.operations.iter().any(|operation| matches!(
+            operation,
+            Operation::WriteText { destination, content, targets }
+                if destination == "kubejs/server_scripts/create_horse_power/recipes.js"
+                    && content.contains("tfg:shaped/horse_crank_bronze")
+                    && targets.contains(&Target::Server)
+                    && targets.contains(&Target::Client)
+        )));
+        assert!(patch.manifest.operations.iter().any(|operation| matches!(
+            operation,
+            Operation::PatchToml { destination, values, skip_if_missing, targets }
+                if destination == "defaultconfigs/createhorsepower-server.toml"
+                    && !skip_if_missing
+                    && values.get("balance.enableIndividualAnimalStats") == Some(&serde_json::Value::Bool(false))
+                    && values.get("path.evaluationMode") == Some(&serde_json::Value::String("LEGACY".into()))
+                    && targets.contains(&Target::Server)
+                    && targets.contains(&Target::Client)
+        )));
+        assert!(patch.manifest.operations.iter().any(|operation| matches!(
+            operation,
+            Operation::PatchToml { destination, skip_if_missing, targets, .. }
+                if destination == "world/serverconfig/createhorsepower-server.toml"
+                    && *skip_if_missing
+                    && targets.as_slice() == [Target::Server]
         )));
     }
 }

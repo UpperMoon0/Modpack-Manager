@@ -6,11 +6,12 @@ use fs2::FileExt;
 use globset::Glob;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use toml_edit::{value as toml_value, DocumentMut, Item, Table};
 use walkdir::WalkDir;
 use zip::ZipArchive;
 
@@ -157,6 +158,20 @@ pub fn plan_manifest(manifest: &PatchManifest, root: &Path, target: Target) -> R
                 kind: "writeText".into(),
                 path: destination.clone(),
                 detail: "Write manifest-managed text file".into(),
+            }),
+            Operation::PatchToml {
+                destination,
+                values,
+                skip_if_missing,
+                ..
+            } => items.push(PlanItem {
+                kind: "patchToml".into(),
+                path: destination.clone(),
+                detail: if *skip_if_missing && !root.join(destination).exists() {
+                    "Optional TOML file is absent; this step is a no-op.".into()
+                } else {
+                    format!("Patch {} TOML values in place", values.len())
+                },
             }),
         }
     }
@@ -336,6 +351,23 @@ pub async fn apply_manifest(
                     }
                     fs::write(&destination, content.as_bytes())
                         .with_context(|| format!("failed to write {}", destination.display()))?;
+                }
+                Operation::PatchToml {
+                    destination,
+                    values,
+                    skip_if_missing,
+                    ..
+                } => {
+                    let relative = PathBuf::from(destination);
+                    ensure_no_symlink_components(root, &relative)?;
+                    let destination = root.join(&relative);
+                    if !(*skip_if_missing && !destination.exists()) {
+                        transaction.backup_once(&relative, &progress)?;
+                        if let Some(parent) = destination.parent() {
+                            fs::create_dir_all(parent)?;
+                        }
+                        patch_toml_file(&destination, values)?;
+                    }
                 }
             }
 
@@ -630,7 +662,76 @@ fn operation_message(operation: &Operation) -> String {
         Operation::InstallFile { destination, .. } => format!("Installing {destination}"),
         Operation::ExtractZip { destination, .. } => format!("Updating {destination}"),
         Operation::WriteText { destination, .. } => format!("Writing {destination}"),
+        Operation::PatchToml { destination, .. } => format!("Patching TOML {destination}"),
     }
+}
+
+fn patch_toml_file(path: &Path, values: &BTreeMap<String, serde_json::Value>) -> Result<()> {
+    let source = if path.exists() {
+        fs::read_to_string(path)
+            .with_context(|| format!("failed to read TOML {}", path.display()))?
+    } else {
+        String::new()
+    };
+
+    let mut document = if source.trim().is_empty() {
+        DocumentMut::new()
+    } else {
+        source
+            .parse::<DocumentMut>()
+            .with_context(|| format!("invalid TOML {}", path.display()))?
+    };
+
+    for (key, value) in values {
+        set_toml_value(&mut document, key, value)
+            .with_context(|| format!("failed to patch TOML key {key:?}"))?;
+    }
+
+    fs::write(path, document.to_string().as_bytes())
+        .with_context(|| format!("failed to write TOML {}", path.display()))
+}
+
+fn set_toml_value(
+    document: &mut DocumentMut,
+    dotted_key: &str,
+    value: &serde_json::Value,
+) -> Result<()> {
+    let parts: Vec<&str> = dotted_key.split('.').collect();
+    let (leaf, parents) = parts
+        .split_last()
+        .context("TOML key cannot be empty")?;
+
+    let mut table = document.as_table_mut();
+    for part in parents {
+        if !table.contains_key(*part) {
+            table.insert(*part, Item::Table(Table::new()));
+        }
+        table = table
+            .get_mut(*part)
+            .and_then(Item::as_table_mut)
+            .with_context(|| format!("TOML path component {part:?} is not a table"))?;
+    }
+
+    let item = match value {
+        serde_json::Value::Bool(value) => toml_value(*value),
+        serde_json::Value::String(value) => toml_value(value.clone()),
+        serde_json::Value::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                toml_value(value)
+            } else if let Some(value) = value.as_u64() {
+                let value = i64::try_from(value).context("TOML integer exceeds i64 range")?;
+                toml_value(value)
+            } else if let Some(value) = value.as_f64() {
+                toml_value(value)
+            } else {
+                bail!("unsupported numeric TOML value");
+            }
+        }
+        _ => bail!("patchToml supports only scalar boolean, numeric, and string values"),
+    };
+
+    table.insert(*leaf, item);
+    Ok(())
 }
 
 fn emit(

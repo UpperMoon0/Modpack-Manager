@@ -271,3 +271,133 @@ fn rejects_manager_metadata_and_parent_traversal_targets() {
         assert!(plan_manifest(&manifest, root.path(), Target::Client).is_err());
     }
 }
+
+
+#[tokio::test]
+async fn patch_toml_preserves_tfg_lists_and_unrelated_settings() {
+    use std::collections::BTreeMap;
+
+    let root = basic_root();
+    fs::create_dir_all(root.path().join("defaultconfigs")).unwrap();
+    let config_path = root.path().join("defaultconfigs/createhorsepower-server.toml");
+    fs::write(
+        &config_path,
+        r#"creatureRPMRange = 4
+largeCreatures = ["tfc:horse", "tfg:sniffer", "minecraft:zombie_horse"]
+greatPathBlock = ["rnr:brick_road", "greate:steel_shaft"]
+
+[balance]
+globalRpmMultiplier = 1.0
+enableIndividualAnimalStats = true
+
+[custom]
+keepMe = "yes"
+"#,
+    )
+    .unwrap();
+
+    let mut values = BTreeMap::new();
+    values.insert("creatureRPMRange".into(), serde_json::Value::from(16));
+    values.insert(
+        "balance.enableIndividualAnimalStats".into(),
+        serde_json::Value::from(false),
+    );
+    values.insert(
+        "path.evaluationMode".into(),
+        serde_json::Value::from("LEGACY"),
+    );
+
+    let manifest = PatchManifest {
+        schema_version: 1,
+        id: "toml-overlay".into(),
+        name: "TOML overlay".into(),
+        version: "1".into(),
+        description: String::new(),
+        required_paths: vec!["defaultconfigs/createhorsepower-server.toml".into()],
+        artifacts: vec![],
+        operations: vec![Operation::PatchToml {
+            destination: "defaultconfigs/createhorsepower-server.toml".into(),
+            values,
+            skip_if_missing: false,
+            targets: vec![Target::Server],
+        }],
+    };
+
+    let source = manifest_source(&root);
+    apply_manifest(
+        &manifest,
+        source.to_str().unwrap(),
+        root.path(),
+        Target::Server,
+        None,
+    )
+    .await
+    .unwrap();
+
+    let patched = fs::read_to_string(&config_path).unwrap();
+    let document = patched.parse::<toml_edit::DocumentMut>().unwrap();
+
+    assert_eq!(document["creatureRPMRange"].as_integer(), Some(16));
+    assert_eq!(
+        document["largeCreatures"].as_array().unwrap().len(),
+        3,
+        "TFG worker list must be preserved"
+    );
+    assert_eq!(
+        document["greatPathBlock"].as_array().unwrap().len(),
+        2,
+        "TFG path list must be preserved"
+    );
+    assert_eq!(
+        document["balance"]["enableIndividualAnimalStats"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        document["path"]["evaluationMode"].as_str(),
+        Some("LEGACY")
+    );
+    assert_eq!(document["custom"]["keepMe"].as_str(), Some("yes"));
+}
+
+#[tokio::test]
+async fn optional_patch_toml_does_not_create_missing_active_world_config() {
+    use std::collections::BTreeMap;
+
+    let root = basic_root();
+    let mut values = BTreeMap::new();
+    values.insert("creatureRPMRange".into(), serde_json::Value::from(16));
+
+    let manifest = PatchManifest {
+        schema_version: 1,
+        id: "toml-optional".into(),
+        name: "optional TOML".into(),
+        version: "1".into(),
+        description: String::new(),
+        required_paths: vec!["config".into()],
+        artifacts: vec![],
+        operations: vec![Operation::PatchToml {
+            destination: "world/serverconfig/createhorsepower-server.toml".into(),
+            values,
+            skip_if_missing: true,
+            targets: vec![Target::Server],
+        }],
+    };
+
+    let source = manifest_source(&root);
+    apply_manifest(
+        &manifest,
+        source.to_str().unwrap(),
+        root.path(),
+        Target::Server,
+        None,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        !root
+            .path()
+            .join("world/serverconfig/createhorsepower-server.toml")
+            .exists()
+    );
+}
