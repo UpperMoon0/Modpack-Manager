@@ -3,9 +3,16 @@ use reqwest::Client;
 use std::path::{Component, Path, PathBuf};
 use url::Url;
 
+fn http_client() -> Result<Client> {
+    Client::builder()
+        .user_agent("Modpack-Manager/1.0 (+https://github.com/UpperMoon0/Modpack-Manager)")
+        .build()
+        .context("failed to create HTTP client")
+}
+
 pub async fn load_text(source: &str) -> Result<String> {
     if is_http(source) {
-        let response = Client::new()
+        let response = http_client()?
             .get(source)
             .send()
             .await
@@ -23,7 +30,7 @@ pub async fn load_text(source: &str) -> Result<String> {
 
 pub async fn load_bytes(source: &str) -> Result<Vec<u8>> {
     if is_http(source) {
-        let response = Client::new()
+        let response = http_client()?
             .get(source)
             .send()
             .await

@@ -9,14 +9,23 @@ MODPACKCTL="${MODPACKCTL:-modpackctl}"
 if [[ -z "$ROOT" ]]; then
   cat >&2 <<'USAGE'
 Usage:
-  patch-server.sh <server-root> <channel-url-or-file>
+  patch-server.sh <tfg-server-root> [channel-url-or-file]
 
-Preferred environment:
-  MODPACK_ROOT=/srv/tfg
+By default this applies the built-in TFG Forge 1.20.1 profile:
+  Economy
+  Simply Screens
+  Simply Speakers
+  Create Horse Power - CE
+  Building Gadgets Extra
+  Create: Extra Gauges
+
+OpenUI is removed from servers and installed only on clients.
+
+Optional overrides:
   PATCH_CHANNEL=https://example.com/tfg/channel.json
+  PATCH_MANIFEST=https://example.com/tfg/patch.json
   MODPACKCTL=/usr/local/bin/modpackctl
 
-PATCH_MANIFEST is also supported for pinning one exact manifest.
 Set DRY_RUN=1 to preview without changing files.
 USAGE
   exit 2
@@ -27,14 +36,11 @@ if ! command -v "$MODPACKCTL" >/dev/null 2>&1; then
   exit 127
 fi
 
-SOURCE_ARGS=()
+SOURCE_ARGS=(--tfg)
 if [[ -n "$MANIFEST" ]]; then
   SOURCE_ARGS=(--manifest "$MANIFEST")
 elif [[ -n "$CHANNEL" ]]; then
   SOURCE_ARGS=(--channel "$CHANNEL")
-else
-  echo "Set PATCH_CHANNEL (preferred), PATCH_MANIFEST, or pass the channel as argument 2." >&2
-  exit 2
 fi
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then

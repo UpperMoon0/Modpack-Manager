@@ -2,6 +2,7 @@ mod channel;
 mod engine;
 mod schema;
 mod source;
+mod tfg;
 
 pub use channel::{load_patch_channel, PatchChannel, PatchChannelRelease, ResolvedPatchChannel};
 pub use engine::{
@@ -9,3 +10,4 @@ pub use engine::{
     PatchProgressPhase, PatchState, PlanItem, ProgressCallback,
 };
 pub use schema::{Artifact, Operation, PatchManifest, Target};
+pub use tfg::{resolve_tfg_patch, TfgResolvedMod, TfgResolvedPatch};

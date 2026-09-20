@@ -45,3 +45,20 @@ export interface ResolvedPatchChannel {
   notes: string;
   publishedAt: string | null;
 }
+
+export interface TfgResolvedMod {
+  id: string;
+  name: string;
+  version: string;
+  fileName: string;
+  source: string;
+  targets: Array<"client" | "server">;
+  url: string;
+  sha256: string;
+}
+
+export interface TfgPlanResponse {
+  patchVersion: string;
+  mods: TfgResolvedMod[];
+  plan: PatchPlan;
+}

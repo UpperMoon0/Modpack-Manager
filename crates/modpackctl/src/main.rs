@@ -1,8 +1,8 @@
 use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use patch_core::{
-    apply_manifest, load_manifest, load_patch_channel, plan_manifest, read_state, PatchProgress,
-    ProgressCallback, Target,
+    apply_manifest, load_manifest, load_patch_channel, plan_manifest, read_state, resolve_tfg_patch,
+    PatchManifest, PatchProgress, ProgressCallback, Target,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,26 +16,55 @@ struct Cli {
 
 #[derive(Args)]
 struct PatchSource {
-    #[arg(long, conflicts_with = "channel", required_unless_present = "channel")]
+    #[arg(long, conflicts_with_all = ["channel", "tfg"])]
     manifest: Option<String>,
 
-    #[arg(long, conflicts_with = "manifest", required_unless_present = "manifest")]
+    #[arg(long, conflicts_with_all = ["manifest", "tfg"])]
     channel: Option<String>,
+
+    /// Resolve the built-in TFG Forge 1.20.1 managed-mod profile.
+    #[arg(long, conflicts_with_all = ["manifest", "channel"])]
+    tfg: bool,
+}
+
+struct ResolvedSource {
+    manifest: PatchManifest,
+    source: String,
 }
 
 impl PatchSource {
-    async fn resolve(self) -> Result<String> {
-        match (self.manifest, self.channel) {
-            (Some(manifest), None) => Ok(manifest),
-            (None, Some(channel)) => {
+    async fn resolve(self) -> Result<ResolvedSource> {
+        match (self.manifest, self.channel, self.tfg) {
+            (Some(source), None, false) => Ok(ResolvedSource {
+                manifest: load_manifest(&source).await?,
+                source,
+            }),
+            (None, Some(channel), false) => {
                 let resolved = load_patch_channel(&channel).await?;
                 eprintln!(
                     "Resolved channel {} -> patch {}",
                     resolved.name, resolved.version
                 );
-                Ok(resolved.manifest_source)
+                Ok(ResolvedSource {
+                    manifest: load_manifest(&resolved.manifest_source).await?,
+                    source: resolved.manifest_source,
+                })
             }
-            _ => bail!("provide exactly one of --manifest or --channel"),
+            (None, None, true) => {
+                let resolved = resolve_tfg_patch().await?;
+                eprintln!(
+                    "Resolved TFG Forge 1.20.1 profile -> {} managed mods",
+                    resolved.mods.len()
+                );
+                for managed in &resolved.mods {
+                    eprintln!("  {} {} ({})", managed.name, managed.version, managed.source);
+                }
+                Ok(ResolvedSource {
+                    manifest: resolved.manifest,
+                    source: "tfg://managed/forge-1.20.1".into(),
+                })
+            }
+            _ => bail!("provide exactly one of --manifest, --channel, or --tfg"),
         }
     }
 }
@@ -96,9 +125,8 @@ async fn main() -> Result<()> {
             target,
             json,
         } => {
-            let manifest_source = source.resolve().await?;
-            let patch = load_manifest(&manifest_source).await?;
-            let plan = plan_manifest(&patch, &root, target.into())?;
+            let resolved = source.resolve().await?;
+            let plan = plan_manifest(&resolved.manifest, &root, target.into())?;
 
             if json {
                 println!("{}", serde_json::to_string_pretty(&plan)?);
@@ -124,8 +152,7 @@ async fn main() -> Result<()> {
             target,
             json,
         } => {
-            let manifest_source = source.resolve().await?;
-            let patch = load_manifest(&manifest_source).await?;
+            let resolved = source.resolve().await?;
             let progress: ProgressCallback = Arc::new(|event: PatchProgress| {
                 eprintln!(
                     "[{:?}] {}/{} {}",
@@ -134,8 +161,8 @@ async fn main() -> Result<()> {
             });
 
             let result = apply_manifest(
-                &patch,
-                &manifest_source,
+                &resolved.manifest,
+                &resolved.source,
                 &root,
                 target.into(),
                 Some(progress),

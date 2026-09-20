@@ -4,46 +4,43 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import { patchApi } from "./api";
-import {
-  APP_UPDATE_INTERVAL_MS,
-  DEFAULT_PATCH_CHANNEL,
-  PATCH_CHANNEL_KEY,
-  ROOT_KEY,
-  patchPollIntervalMs
-} from "./channel";
-import { patchStatus } from "./status";
+import { tfgApi } from "./api";
+import { APP_UPDATE_INTERVAL_MS, ROOT_KEY } from "./channel";
 import type {
   ApplyResult,
-  PatchPlan,
   PatchProgress,
   PatchState,
-  ResolvedPatchChannel
+  TfgPlanResponse
 } from "./types";
+
+const TFG_UPDATE_INTERVAL_MS = 30 * 60 * 1000;
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function targetLabel(targets: Array<"client" | "server">) {
+  return targets.includes("server") ? "Client + server" : "Client only";
+}
+
 export default function App() {
-  const storedChannel = localStorage.getItem(PATCH_CHANNEL_KEY) ?? DEFAULT_PATCH_CHANNEL;
-  const [channelSource, setChannelSource] = useState(storedChannel);
-  const [channelDraft, setChannelDraft] = useState(storedChannel);
-  const [root, setRoot] = useState(() => localStorage.getItem(ROOT_KEY) ?? "");
-  const [channel, setChannel] = useState<ResolvedPatchChannel | null>(null);
-  const [plan, setPlan] = useState<PatchPlan | null>(null);
+  const savedRoot = localStorage.getItem(ROOT_KEY) ?? "";
+  const [folderDraft, setFolderDraft] = useState(savedRoot);
+  const [root, setRoot] = useState(savedRoot);
+  const [tfg, setTfg] = useState<TfgPlanResponse | null>(null);
   const [state, setState] = useState<PatchState | null>(null);
   const [result, setResult] = useState<ApplyResult | null>(null);
   const [progress, setProgress] = useState<PatchProgress | null>(null);
   const [error, setError] = useState("");
-  const [channelBusy, setChannelBusy] = useState(false);
+  const [checkingTfg, setCheckingTfg] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [lastPatchCheck, setLastPatchCheck] = useState<string | null>(null);
+
   const [appVersion, setAppVersion] = useState("…");
   const [appUpdate, setAppUpdate] = useState<Update | null>(null);
   const [appUpdateStatus, setAppUpdateStatus] = useState("");
   const [appChecking, setAppChecking] = useState(false);
   const [appInstalling, setAppInstalling] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [lastPatchCheck, setLastPatchCheck] = useState<string | null>(null);
 
   useEffect(() => {
     const subscription = listen<PatchProgress>("patch-progress", (event) => {
@@ -70,28 +67,27 @@ export default function App() {
   useEffect(() => {
     if (!root) {
       setState(null);
+      setTfg(null);
       return;
     }
-    localStorage.setItem(ROOT_KEY, root);
-    void patchApi.state(root).then(setState).catch(() => setState(null));
+
+    void tfgApi.state(root).then(setState).catch(() => setState(null));
+    void refreshTfg(true);
+
+    const interval = window.setInterval(
+      () => void refreshTfg(true),
+      TFG_UPDATE_INTERVAL_MS
+    );
+    return () => window.clearInterval(interval);
   }, [root]);
 
-  useEffect(() => {
-    if (!channelSource.trim()) return;
-
-    void refreshPatchChannel(true);
-    const interval = window.setInterval(
-      () => void refreshPatchChannel(true),
-      patchPollIntervalMs(channel?.checkIntervalMinutes ?? 30)
-    );
-
-    return () => window.clearInterval(interval);
-  }, [channelSource, root, channel?.checkIntervalMinutes]);
-
-  const status = useMemo(
-    () => patchStatus(Boolean(result), Boolean(plan), Boolean(plan?.alreadyApplied)),
-    [plan, result]
-  );
+  const status = useMemo(() => {
+    if (!root) return "Select TFG folder";
+    if (checkingTfg) return "Checking releases";
+    if (!tfg) return "TFG not inspected";
+    if (tfg.plan.alreadyApplied) return "TFG managed mods current";
+    return "TFG update available";
+  }, [root, checkingTfg, tfg]);
 
   async function checkAppUpdater(silent: boolean) {
     if (!silent) {
@@ -149,65 +145,64 @@ export default function App() {
     }
   }
 
-  async function connectChannel() {
-    const next = channelDraft.trim();
+  async function useFolder(path = folderDraft) {
+    const next = path.trim();
     if (!next) return;
-    localStorage.setItem(PATCH_CHANNEL_KEY, next);
-    setChannelSource(next);
-    setChannel(null);
-    setPlan(null);
+    setFolderDraft(next);
+    setRoot(next);
+    localStorage.setItem(ROOT_KEY, next);
+    setTfg(null);
     setResult(null);
     setError("");
-  }
-
-  async function refreshPatchChannel(silent: boolean) {
-    if (!channelSource.trim()) return;
-
-    if (!silent) setChannelBusy(true);
-    try {
-      const nextChannel = await patchApi.channel(channelSource.trim());
-      setChannel(nextChannel);
-      setLastPatchCheck(new Date().toLocaleTimeString());
-
-      if (root.trim()) {
-        const [nextState, nextPlan] = await Promise.all([
-          patchApi.state(root.trim()),
-          patchApi.plan(nextChannel.manifestSource, root.trim())
-        ]);
-        setState(nextState);
-        setPlan(nextPlan);
-      }
-      if (!silent) setError("");
-    } catch (cause) {
-      if (!silent) setError(errorMessage(cause));
-    } finally {
-      if (!silent) setChannelBusy(false);
-    }
   }
 
   async function chooseRoot() {
     const selected = await open({
       directory: true,
       multiple: false,
-      title: "Select modpack game directory"
+      title: "Select your TFG modpack folder"
     });
+
     if (typeof selected === "string") {
-      setRoot(selected);
-      setPlan(null);
-      setResult(null);
+      await useFolder(selected);
+    }
+  }
+
+  async function refreshTfg(silent: boolean) {
+    if (!root.trim()) return;
+
+    if (!silent) setCheckingTfg(true);
+    setResult(null);
+
+    try {
+      const [next, nextState] = await Promise.all([
+        tfgApi.plan(root.trim()),
+        tfgApi.state(root.trim())
+      ]);
+      setTfg(next);
+      setState(nextState);
+      setLastPatchCheck(new Date().toLocaleTimeString());
+      setError("");
+    } catch (cause) {
+      setTfg(null);
+      if (!silent) setError(errorMessage(cause));
+    } finally {
+      if (!silent) setCheckingTfg(false);
     }
   }
 
   async function apply() {
-    if (!plan || !channel || busy) return;
+    if (!tfg || busy) return;
     setBusy(true);
     setError("");
     setResult(null);
+
     try {
-      const applied = await patchApi.apply(channel.manifestSource, root.trim());
+      const applied = await tfgApi.apply(root.trim(), tfg.patchVersion);
       setResult(applied);
       setState(applied.state);
-      setPlan(await patchApi.plan(channel.manifestSource, root.trim()));
+      setTfg(await tfgApi.plan(root.trim()));
+      setLastPatchCheck(new Date().toLocaleTimeString());
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -220,11 +215,12 @@ export default function App() {
     <main className="shell">
       <header className="hero">
         <div>
-          <div className="eyebrow">PATCH CONTROL</div>
+          <div className="eyebrow">TFG PATCH CONTROL</div>
           <h1>Modpack Manager</h1>
           <p>
-            Follow a remote release channel once. New modpack patches are discovered automatically,
-            while the manager itself updates independently through signed application releases.
+            Keep the TFG Forge 1.20.1 instance synchronized with the latest compatible managed
+            mods. Releases are resolved directly from GitHub and Modrinth; old managed JARs are
+            removed before the selected releases are installed.
           </p>
         </div>
         <div className="status">{status}</div>
@@ -244,43 +240,39 @@ export default function App() {
       )}
 
       <section className="panel">
-        <div className="heading"><span>01</span><h2>Update channel</h2></div>
+        <div className="heading"><span>01</span><h2>TFG modpack folder</h2></div>
         <p className="sectionCopy">
-          Use one stable channel URL from GitHub Releases, raw GitHub, a CDN, or any HTTPS host.
-          The channel points to the newest patch manifest, so future modpack versions require no new app build.
+          Enter the TFG game directory itself — the folder containing <code>mods</code>,
+          <code>config</code> and <code>kubejs</code>. The manager validates those markers before
+          changing anything.
         </p>
         <label>
-          Patch channel URL
+          TFG folder path
           <div className="pathRow">
             <input
-              value={channelDraft}
-              onChange={(event) => setChannelDraft(event.target.value)}
-              placeholder="https://github.com/owner/tfg-patches/releases/latest/download/channel.json"
+              value={folderDraft}
+              onChange={(event) => setFolderDraft(event.target.value)}
+              placeholder={"C:\\Games\\PrismLauncher\\instances\\TFG\\.minecraft"}
               spellCheck={false}
             />
-            <button className="secondary" disabled={!channelDraft.trim()} onClick={connectChannel}>
-              Connect
+            <button className="secondary" onClick={chooseRoot}>Browse</button>
+            <button
+              className="primary compact"
+              disabled={!folderDraft.trim()}
+              onClick={() => void useFolder()}
+            >
+              Use folder
             </button>
           </div>
         </label>
 
-        {channel && (
-          <div className="channelCard">
-            <div><small>Channel</small><strong>{channel.name}</strong></div>
-            <div><small>Latest patch</small><strong>{channel.version}</strong></div>
-            <div><small>Checks</small><strong>Every {channel.checkIntervalMinutes} min</strong></div>
-            <div><small>Last check</small><strong>{lastPatchCheck ?? "—"}</strong></div>
-            {channel.notes && <p>{channel.notes}</p>}
-          </div>
-        )}
-
         <div className="toolbar">
           <button
             className="secondary"
-            disabled={!channelSource.trim() || channelBusy}
-            onClick={() => void refreshPatchChannel(false)}
+            disabled={!root || checkingTfg}
+            onClick={() => void refreshTfg(false)}
           >
-            {channelBusy ? "Checking…" : "Check patch channel now"}
+            {checkingTfg ? "Checking…" : "Check TFG updates now"}
           </button>
           <button
             className="secondary"
@@ -289,52 +281,62 @@ export default function App() {
           >
             {appChecking ? "Checking…" : "Check app update"}
           </button>
+          {lastPatchCheck && <span className="muted">TFG checked {lastPatchCheck}</span>}
           {appUpdateStatus && !appUpdate && <span className="muted">{appUpdateStatus}</span>}
         </div>
       </section>
 
       <section className="panel">
-        <div className="heading"><span>02</span><h2>Installation</h2></div>
-        <label>
-          Modpack game directory
-          <div className="pathRow">
-            <input
-              value={root}
-              onChange={(event) => {
-                setRoot(event.target.value);
-                setPlan(null);
-                setResult(null);
-              }}
-              placeholder="C:\Games\PrismLauncher\instances\TFG\.minecraft"
-              spellCheck={false}
-            />
-            <button className="secondary" onClick={chooseRoot}>Browse</button>
+        <div className="heading"><span>02</span><h2>Managed TFG mods</h2></div>
+        {!tfg ? (
+          <div className="empty">
+            Select a valid TFG folder to resolve the latest Forge 1.20.1 releases.
           </div>
-        </label>
+        ) : (
+          <div className="modGrid">
+            {tfg.mods.map((managed) => (
+              <article className="modCard" key={managed.id}>
+                <div className="modTitle">
+                  <strong>{managed.name}</strong>
+                  <span className={managed.targets.includes("server") ? "targetBadge" : "targetBadge clientOnly"}>
+                    {targetLabel(managed.targets)}
+                  </span>
+                </div>
+                <div className="modVersion">{managed.version}</div>
+                <small>{managed.source}</small>
+                <code>{managed.fileName}</code>
+              </article>
+            ))}
+          </div>
+        )}
+        {tfg && (
+          <div className="notice info">
+            OpenUI is installed on clients only and removed from servers. Create Horse Power - CE
+            replaces the original Create Horse Power JAR. Every managed mod removes older matching
+            JARs before installation.
+          </div>
+        )}
       </section>
 
       <section className="panel">
-        <div className="heading"><span>03</span><h2>Change plan</h2></div>
-        {!plan ? (
-          <div className="empty">
-            Connect an update channel and select the modpack directory. The manager will check the
-            channel automatically and show the exact filesystem plan here.
-          </div>
+        <div className="heading"><span>03</span><h2>TFG patch plan</h2></div>
+        {!tfg ? (
+          <div className="empty">No filesystem changes are planned until the TFG folder is validated.</div>
         ) : (
           <>
             <div className="summary">
-              <div><small>Patch</small><strong>{plan.manifestName}</strong></div>
-              <div><small>Available</small><strong>{plan.manifestVersion}</strong></div>
-              <div><small>Installed</small><strong>{state?.manifestVersion ?? "—"}</strong></div>
-              <div><small>Operations</small><strong>{plan.items.length}</strong></div>
+              <div><small>Profile</small><strong>Forge 1.20.1</strong></div>
+              <div><small>Resolved set</small><strong>{tfg.patchVersion}</strong></div>
+              <div><small>Installed set</small><strong>{state?.manifestVersion ?? "—"}</strong></div>
+              <div><small>Operations</small><strong>{tfg.plan.items.length}</strong></div>
             </div>
 
-            {plan.warnings.map((warning) => (
+            {tfg.plan.warnings.map((warning) => (
               <div className="notice warning" key={warning}>{warning}</div>
             ))}
 
             <div className="operations">
-              {plan.items.map((item, index) => (
+              {tfg.plan.items.map((item, index) => (
                 <div className="operation" key={item.kind + item.path + index}>
                   <strong>{item.kind}</strong>
                   <span>{item.path}</span>
@@ -343,8 +345,12 @@ export default function App() {
               ))}
             </div>
 
-            <button className="primary" disabled={busy || plan.items.length === 0} onClick={apply}>
-              {busy ? "Applying…" : plan.alreadyApplied ? "Re-apply patch" : "Update modpack"}
+            <button className="primary" disabled={busy || tfg.plan.items.length === 0} onClick={apply}>
+              {busy
+                ? "Patching TFG…"
+                : tfg.plan.alreadyApplied
+                  ? "Repair / re-apply managed mods"
+                  : "Update TFG managed mods"}
             </button>
           </>
         )}
@@ -365,7 +371,7 @@ export default function App() {
           {error && <div className="notice error">{error}</div>}
           {result && (
             <div className="notice success">
-              Patch applied. {result.changedPaths} paths changed
+              TFG patch applied. {result.changedPaths} paths changed
               {result.backupPath ? "; backup: " + result.backupPath : ""}.
             </div>
           )}
@@ -373,7 +379,7 @@ export default function App() {
       )}
 
       <footer>
-        Modpack Manager {appVersion} · patch channels auto-check in the background · app releases check every 6 hours
+        Modpack Manager {appVersion} · TFG releases auto-check every 30 minutes · app releases check every 6 hours
       </footer>
     </main>
   );
