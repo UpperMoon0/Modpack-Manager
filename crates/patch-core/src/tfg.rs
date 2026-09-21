@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap};
 const GITHUB_RELEASE_LIMIT: usize = 30;
 const EXTRA_GAUGES_PROJECT: &str = "extra-gauges";
 
-const TFG_PROFILE_POLICY_VERSION: &str = "2026-09-21-horsepower-config-v2";
+const TFG_PROFILE_POLICY_VERSION: &str = "2026-09-21-horsepower-path-stress-v3";
 const TFG_HORSE_POWER_RECIPE: &str = r#"// priority: 0
 "use strict";
 
@@ -78,6 +78,10 @@ fn horse_power_config_values() -> BTreeMap<String, serde_json::Value> {
     values.insert(
         "path.evaluationMode".into(),
         serde_json::Value::from("LEGACY"),
+    );
+    values.insert(
+        "path.enableStressScaling".into(),
+        serde_json::Value::from(false),
     );
     values.insert(
         "path.minimumCoverage".into(),
@@ -595,6 +599,7 @@ mod tests {
                     && !skip_if_missing
                     && values.get("balance.enableIndividualAnimalStats") == Some(&serde_json::Value::Bool(false))
                     && values.get("path.evaluationMode") == Some(&serde_json::Value::String("LEGACY".into()))
+                    && values.get("path.enableStressScaling") == Some(&serde_json::Value::Bool(false))
                     && targets.contains(&Target::Server)
                     && targets.contains(&Target::Client)
         )));
