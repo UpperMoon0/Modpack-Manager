@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "tfg-nstut",
+  "name": "TFG NsTut Patches",
+  "version": "2026.09.20.1",
+  "description": "Custom mods, scripts and configs layered on top of the upstream TFG modpack.",
+  "requiredPaths": [
+    "mods",
+    "config"
+  ],
+  "artifacts": [
+    {
+      "id": "custom-economy-mod",
+      "url": "./Economy-0.1.0.jar",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "fileName": "Economy-0.1.0.jar"
+    },
+    {
+      "id": "kubejs-overrides",
+      "url": "./kubejs-overrides.zip",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "fileName": "kubejs-overrides.zip"
+    }
+  ],
+  "operations": [
+    {
+      "type": "removeMatching",
+      "pattern": "mods/Economy-*.jar",
+      "targets": ["client", "server"]
+    },
+    {
+      "type": "installFile",
+      "artifact": "custom-economy-mod",
+      "destination": "mods/Economy-0.1.0.jar",
+      "targets": ["client", "server"]
+    },
+    {
+      "type": "extractZip",
+      "artifact": "kubejs-overrides",
+      "destination": "kubejs",
+      "cleanDestination": false,
+      "targets": ["client", "server"]
+    },
+    {
+      "type": "writeText",
+      "destination": "config/nstut-patch-version.txt",
+      "content": "2026.09.20.1\n",
+      "targets": ["client", "server"]
+    }
+  ]
+}

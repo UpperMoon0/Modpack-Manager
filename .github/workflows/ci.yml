@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npm run build
+      - run: node --check scripts/prepare-release.mjs
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p patch-core -p modpackctl
+      - run: cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
+      - name: Resolve live TFG client/server profiles
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          ROOT="$RUNNER_TEMP/tfg-smoke"
+          mkdir -p "$ROOT/mods" "$ROOT/config" "$ROOT/kubejs" "$ROOT/defaultconfigs"
+          : > "$ROOT/defaultconfigs/createhorsepower-server.toml"
+
+          cargo run --quiet -p modpackctl -- plan --tfg --target client --root "$ROOT" --json > "$RUNNER_TEMP/tfg-client.json"
+          cargo run --quiet -p modpackctl -- plan --tfg --target server --root "$ROOT" --json > "$RUNNER_TEMP/tfg-server.json"
+
+          jq -e '[.items[] | select(.kind == "installFile")] | length == 7' "$RUNNER_TEMP/tfg-client.json"
+          jq -e '[.items[] | select(.kind == "installFile")] | length == 6' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'any(.items[]; .detail == "Install verified artifact openui")' "$RUNNER_TEMP/tfg-client.json"
+          jq -e 'all(.items[]; .detail != "Install verified artifact openui")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'any(.items[]; .path == "mods/createhorsepower-*.jar")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'any(.items[]; .kind == "writeText" and .path == "kubejs/server_scripts/create_horse_power/recipes.js")' "$RUNNER_TEMP/tfg-client.json"
+          jq -e 'any(.items[]; .kind == "writeText" and .path == "kubejs/server_scripts/create_horse_power/recipes.js")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'any(.items[]; .kind == "patchToml" and .path == "defaultconfigs/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-client.json"
+          jq -e 'any(.items[]; .kind == "patchToml" and .path == "defaultconfigs/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'all(.items[]; .path != "world/serverconfig/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'all(.items[]; .path != "serverconfig/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
+
+  tauri-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm install --no-audit --no-fund
+      - run: npm run tauri build -- --debug
