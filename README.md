@@ -31,6 +31,7 @@ Before installing a managed release, the patch removes matching older JARs.
 Important special cases:
 
 - `mods/createhorsepower-*.jar` is removed before Create Horse Power - CE is installed. This removes both the original Create Horse Power mod and previous CE builds.
+- TFG Core intentionally redirects Forge `SERVER` configs to the game-level `defaultconfigs/` directory. For Create Horse Power - CE, `defaultconfigs/createhorsepower-server.toml` is therefore the authoritative live TFG config; the managed profile does not patch `world/serverconfig/` copies.
 - OpenUI is installed on clients only. On the server, any old `openui-mc-*.jar` is removed and no replacement is installed.
 - historical filename variants for Simply Screens, Simply Speakers and Building Gadgets Extra are also cleaned up.
 

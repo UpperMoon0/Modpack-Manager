@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap};
 const GITHUB_RELEASE_LIMIT: usize = 30;
 const EXTRA_GAUGES_PROJECT: &str = "extra-gauges";
 
-const TFG_PROFILE_POLICY_VERSION: &str = "2026-09-21-horsepower-config-v1";
+const TFG_PROFILE_POLICY_VERSION: &str = "2026-09-21-horsepower-config-v2";
 const TFG_HORSE_POWER_RECIPE: &str = r#"// priority: 0
 "use strict";
 
@@ -410,24 +410,15 @@ fn build_tfg_patch(mods: Vec<TfgResolvedMod>) -> TfgResolvedPatch {
         targets: both.clone(),
     });
 
+    // TFG Core intentionally redirects Forge SERVER configs to the game-level
+    // defaultconfigs directory, so this is the live config for dedicated and
+    // integrated TFG servers rather than merely a new-world template.
     let horse_power_config = horse_power_config_values();
     operations.push(Operation::PatchToml {
         destination: "defaultconfigs/createhorsepower-server.toml".into(),
-        values: horse_power_config.clone(),
+        values: horse_power_config,
         skip_if_missing: false,
         targets: both.clone(),
-    });
-    operations.push(Operation::PatchToml {
-        destination: "world/serverconfig/createhorsepower-server.toml".into(),
-        values: horse_power_config.clone(),
-        skip_if_missing: true,
-        targets: vec![Target::Server],
-    });
-    operations.push(Operation::PatchToml {
-        destination: "serverconfig/createhorsepower-server.toml".into(),
-        values: horse_power_config,
-        skip_if_missing: true,
-        targets: vec![Target::Server],
     });
 
     let identity = format!(
@@ -607,12 +598,11 @@ mod tests {
                     && targets.contains(&Target::Server)
                     && targets.contains(&Target::Client)
         )));
-        assert!(patch.manifest.operations.iter().any(|operation| matches!(
+        assert!(!patch.manifest.operations.iter().any(|operation| matches!(
             operation,
-            Operation::PatchToml { destination, skip_if_missing, targets, .. }
+            Operation::PatchToml { destination, .. }
                 if destination == "world/serverconfig/createhorsepower-server.toml"
-                    && *skip_if_missing
-                    && targets.as_slice() == [Target::Server]
+                    || destination == "serverconfig/createhorsepower-server.toml"
         )));
     }
 }

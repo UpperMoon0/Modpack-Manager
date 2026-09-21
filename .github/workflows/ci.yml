@@ -51,7 +51,8 @@ jobs:
           jq -e 'any(.items[]; .kind == "writeText" and .path == "kubejs/server_scripts/create_horse_power/recipes.js")' "$RUNNER_TEMP/tfg-server.json"
           jq -e 'any(.items[]; .kind == "patchToml" and .path == "defaultconfigs/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-client.json"
           jq -e 'any(.items[]; .kind == "patchToml" and .path == "defaultconfigs/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
-          jq -e 'any(.items[]; .kind == "patchToml" and .path == "world/serverconfig/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'all(.items[]; .path != "world/serverconfig/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'all(.items[]; .path != "serverconfig/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
 
   tauri-windows:
     runs-on: windows-latest
