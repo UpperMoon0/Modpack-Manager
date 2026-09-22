@@ -85,7 +85,8 @@ export default function App() {
     if (!root) return "Select TFG folder";
     if (checkingTfg) return "Checking releases";
     if (!tfg) return "TFG not inspected";
-    if (tfg.plan.alreadyApplied) return "TFG managed mods current";
+    if (tfg.plan.items.length === 0) return "TFG installation current";
+    if (tfg.plan.alreadyApplied) return "TFG installation drift";
     return "TFG update available";
   }, [root, checkingTfg, tfg]);
 
@@ -311,15 +312,15 @@ export default function App() {
         )}
         {tfg && (
           <div className="notice info">
-            OpenUI is installed on clients only and removed from servers. Create Horse Power - CE
-            replaces the original Create Horse Power JAR. Every managed mod removes older matching
-            JARs before installation.
+            OpenUI and Create: Precise Controls are installed on clients only and removed from
+            servers. Create Horse Power - CE replaces the original Create Horse Power JAR. Every
+            managed mod removes older matching JARs before installation.
           </div>
         )}
       </section>
 
       <section className="panel">
-        <div className="heading"><span>03</span><h2>TFG patch plan</h2></div>
+        <div className="heading"><span>03</span><h2>TFG installation diff</h2></div>
         {!tfg ? (
           <div className="empty">No filesystem changes are planned until the TFG folder is validated.</div>
         ) : (
@@ -328,12 +329,18 @@ export default function App() {
               <div><small>Profile</small><strong>Forge 1.20.1</strong></div>
               <div><small>Resolved set</small><strong>{tfg.patchVersion}</strong></div>
               <div><small>Installed set</small><strong>{state?.manifestVersion ?? "—"}</strong></div>
-              <div><small>Operations</small><strong>{tfg.plan.items.length}</strong></div>
+              <div><small>Filesystem changes</small><strong>{tfg.plan.items.length}</strong></div>
             </div>
 
             {tfg.plan.warnings.map((warning) => (
               <div className="notice warning" key={warning}>{warning}</div>
             ))}
+
+            {tfg.plan.items.length === 0 && (
+              <div className="notice success">
+                No managed filesystem changes are needed. This installation matches the resolved client patch.
+              </div>
+            )}
 
             <div className="operations">
               {tfg.plan.items.map((item, index) => (
@@ -349,8 +356,8 @@ export default function App() {
               {busy
                 ? "Patching TFG…"
                 : tfg.plan.alreadyApplied
-                  ? "Repair / re-apply managed mods"
-                  : "Update TFG managed mods"}
+                  ? "Repair installation drift"
+                  : "Apply TFG managed changes"}
             </button>
           </>
         )}
