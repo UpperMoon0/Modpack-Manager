@@ -104,42 +104,58 @@ pub fn plan_manifest(manifest: &PatchManifest, root: &Path, target: Target) -> R
         state.manifest_id == manifest.id && state.manifest_version == manifest.version
     });
 
-    let mut items = Vec::new();
-    let mut warnings = Vec::new();
-
-    for operation in manifest
+    let selected: Vec<&Operation> = manifest
         .operations
         .iter()
         .filter(|operation| operation.applies_to(target))
-    {
+        .collect();
+    let desired_files = desired_install_files(manifest, target)?;
+
+    let mut items = Vec::new();
+    let mut warnings = Vec::new();
+
+    for operation in &selected {
         match operation {
             Operation::RemoveMatching { pattern, .. } => {
-                let matches = resolve_matches(root, pattern)?;
-                if matches.is_empty() {
-                    items.push(PlanItem {
-                        kind: "removeMatching".into(),
-                        path: pattern.clone(),
-                        detail: "No existing paths currently match; this step is a no-op.".into(),
-                    });
-                } else {
-                    for path in matches {
-                        items.push(PlanItem {
-                            kind: "remove".into(),
-                            path: slash_path(&path),
-                            detail: format!("Matched by {pattern}"),
-                        });
+                for path in resolve_matches(root, pattern)? {
+                    // A managed destination is represented by its install/replace diff below.
+                    // Do not report the cleanup glob as a second change for the same file.
+                    if desired_files.contains_key(&path) {
+                        continue;
                     }
+                    items.push(PlanItem {
+                        kind: "remove".into(),
+                        path: slash_path(&path),
+                        detail: format!("Remove stale path matched by {pattern}"),
+                    });
                 }
             }
             Operation::InstallFile {
                 artifact,
                 destination,
                 ..
-            } => items.push(PlanItem {
-                kind: "installFile".into(),
-                path: destination.clone(),
-                detail: format!("Install verified artifact {artifact}"),
-            }),
+            } => {
+                let expected = desired_files
+                    .get(Path::new(destination))
+                    .with_context(|| format!("missing desired checksum for {destination:?}"))?;
+                let path = root.join(destination);
+                ensure_no_symlink_components(root, Path::new(destination))?;
+
+                if path.is_file() && verify_sha256(&path, expected)? {
+                    continue;
+                }
+
+                let exists = path.exists();
+                items.push(PlanItem {
+                    kind: if exists { "replace" } else { "install" }.into(),
+                    path: destination.clone(),
+                    detail: if exists {
+                        format!("Installed file differs from verified artifact {artifact}")
+                    } else {
+                        format!("Install verified artifact {artifact}")
+                    },
+                });
+            }
             Operation::ExtractZip {
                 artifact,
                 destination,
@@ -154,35 +170,59 @@ pub fn plan_manifest(manifest: &PatchManifest, root: &Path, target: Target) -> R
                     format!("Merge verified archive {artifact} into directory")
                 },
             }),
-            Operation::WriteText { destination, .. } => items.push(PlanItem {
-                kind: "writeText".into(),
-                path: destination.clone(),
-                detail: "Write manifest-managed text file".into(),
-            }),
+            Operation::WriteText {
+                destination,
+                content,
+                ..
+            } => {
+                let path = root.join(destination);
+                ensure_no_symlink_components(root, Path::new(destination))?;
+                if path.is_file() && fs::read(&path)? == content.as_bytes() {
+                    continue;
+                }
+
+                items.push(PlanItem {
+                    kind: if path.exists() { "replaceText" } else { "writeText" }.into(),
+                    path: destination.clone(),
+                    detail: if path.exists() {
+                        "Managed text differs from desired content".into()
+                    } else {
+                        "Create managed text file".into()
+                    },
+                });
+            }
             Operation::PatchToml {
                 destination,
                 values,
                 skip_if_missing,
                 ..
-            } => items.push(PlanItem {
-                kind: "patchToml".into(),
-                path: destination.clone(),
-                detail: if *skip_if_missing && !root.join(destination).exists() {
-                    "Optional TOML file is absent; this step is a no-op.".into()
-                } else {
-                    format!("Patch {} TOML values in place", values.len())
-                },
-            }),
+            } => {
+                let path = root.join(destination);
+                ensure_no_symlink_components(root, Path::new(destination))?;
+                if *skip_if_missing && !path.exists() {
+                    continue;
+                }
+                if !toml_patch_needed(&path, values)? {
+                    continue;
+                }
+
+                items.push(PlanItem {
+                    kind: "patchToml".into(),
+                    path: destination.clone(),
+                    detail: format!("Update {} managed TOML values", values.len()),
+                });
+            }
         }
     }
 
-    if already_applied {
+    if already_applied && !items.is_empty() {
         warnings.push(format!(
-            "Patch {} is already recorded as applied. Re-applying remains deterministic.",
-            manifest.version
+            "Patch {} is recorded as applied, but the live installation has {} managed change(s).",
+            manifest.version,
+            items.len()
         ));
     }
-    if items.is_empty() {
+    if selected.is_empty() {
         warnings.push(format!(
             "Manifest has no operations for the {} target.",
             target.as_str()
@@ -232,6 +272,7 @@ pub async fn apply_manifest(
         .iter()
         .filter(|operation| operation.applies_to(target))
         .collect();
+    let desired_files = desired_install_files(manifest, target)?;
 
     let artifact_ids: HashSet<&str> = selected
         .iter()
@@ -294,6 +335,9 @@ pub async fn apply_manifest(
             match operation {
                 Operation::RemoveMatching { pattern, .. } => {
                     for relative in resolve_matches(root, pattern)? {
+                        if desired_files.contains_key(&relative) {
+                            continue;
+                        }
                         transaction.backup_once(&relative, &progress)?;
                         remove_path(&root.join(&relative))?;
                     }
@@ -305,20 +349,27 @@ pub async fn apply_manifest(
                 } => {
                     let relative = PathBuf::from(destination);
                     ensure_no_symlink_components(root, &relative)?;
-                    transaction.backup_once(&relative, &progress)?;
+                    let destination_path = root.join(&relative);
+                    let expected = desired_files
+                        .get(&relative)
+                        .with_context(|| format!("missing desired checksum for {destination:?}"))?;
 
+                    if destination_path.is_file() && verify_sha256(&destination_path, expected)? {
+                        continue;
+                    }
+
+                    transaction.backup_once(&relative, &progress)?;
                     let source = cached_artifacts
                         .get(artifact)
                         .with_context(|| format!("artifact {artifact:?} was not prepared"))?;
-                    let destination = root.join(&relative);
-                    if let Some(parent) = destination.parent() {
+                    if let Some(parent) = destination_path.parent() {
                         fs::create_dir_all(parent)?;
                     }
-                    fs::copy(source, &destination).with_context(|| {
+                    fs::copy(source, &destination_path).with_context(|| {
                         format!(
                             "failed to install {} to {}",
                             source.display(),
-                            destination.display()
+                            destination_path.display()
                         )
                     })?;
                 }
@@ -344,8 +395,12 @@ pub async fn apply_manifest(
                 } => {
                     let relative = PathBuf::from(destination);
                     ensure_no_symlink_components(root, &relative)?;
-                    transaction.backup_once(&relative, &progress)?;
                     let destination = root.join(&relative);
+                    if destination.is_file() && fs::read(&destination)? == content.as_bytes() {
+                        continue;
+                    }
+
+                    transaction.backup_once(&relative, &progress)?;
                     if let Some(parent) = destination.parent() {
                         fs::create_dir_all(parent)?;
                     }
@@ -361,13 +416,18 @@ pub async fn apply_manifest(
                     let relative = PathBuf::from(destination);
                     ensure_no_symlink_components(root, &relative)?;
                     let destination = root.join(&relative);
-                    if !(*skip_if_missing && !destination.exists()) {
-                        transaction.backup_once(&relative, &progress)?;
-                        if let Some(parent) = destination.parent() {
-                            fs::create_dir_all(parent)?;
-                        }
-                        patch_toml_file(&destination, values)?;
+                    if *skip_if_missing && !destination.exists() {
+                        continue;
                     }
+                    if !toml_patch_needed(&destination, values)? {
+                        continue;
+                    }
+
+                    transaction.backup_once(&relative, &progress)?;
+                    if let Some(parent) = destination.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    patch_toml_file(&destination, values)?;
                 }
             }
 
@@ -576,6 +636,79 @@ fn resolve_matches(root: &Path, pattern: &str) -> Result<Vec<PathBuf>> {
     Ok(minimal)
 }
 
+fn desired_install_files(manifest: &PatchManifest, target: Target) -> Result<HashMap<PathBuf, String>> {
+    let mut desired = HashMap::new();
+
+    for operation in manifest
+        .operations
+        .iter()
+        .filter(|operation| operation.applies_to(target))
+    {
+        let Operation::InstallFile {
+            artifact,
+            destination,
+            ..
+        } = operation
+        else {
+            continue;
+        };
+
+        let artifact = manifest
+            .artifacts
+            .iter()
+            .find(|candidate| candidate.id == *artifact)
+            .with_context(|| format!("missing artifact {artifact:?}"))?;
+        let relative = PathBuf::from(destination);
+
+        if let Some(existing) = desired.insert(relative.clone(), artifact.sha256.clone()) {
+            if !existing.eq_ignore_ascii_case(&artifact.sha256) {
+                bail!(
+                    "conflicting managed artifacts target the same destination {}",
+                    slash_path(&relative)
+                );
+            }
+        }
+    }
+
+    Ok(desired)
+}
+
+fn toml_patch_needed(path: &Path, values: &BTreeMap<String, serde_json::Value>) -> Result<bool> {
+    let current = if path.exists() {
+        fs::read(path).with_context(|| format!("failed to read TOML {}", path.display()))?
+    } else {
+        Vec::new()
+    };
+    Ok(current != render_patched_toml(path, values)?)
+}
+
+fn render_patched_toml(
+    path: &Path,
+    values: &BTreeMap<String, serde_json::Value>,
+) -> Result<Vec<u8>> {
+    let source = if path.exists() {
+        fs::read_to_string(path)
+            .with_context(|| format!("failed to read TOML {}", path.display()))?
+    } else {
+        String::new()
+    };
+
+    let mut document = if source.trim().is_empty() {
+        DocumentMut::new()
+    } else {
+        source
+            .parse::<DocumentMut>()
+            .with_context(|| format!("invalid TOML {}", path.display()))?
+    };
+
+    for (key, value) in values {
+        set_toml_value(&mut document, key, value)
+            .with_context(|| format!("failed to patch TOML key {key:?}"))?;
+    }
+
+    Ok(document.to_string().into_bytes())
+}
+
 fn extract_zip(
     archive_path: &Path,
     root: &Path,
@@ -667,27 +800,7 @@ fn operation_message(operation: &Operation) -> String {
 }
 
 fn patch_toml_file(path: &Path, values: &BTreeMap<String, serde_json::Value>) -> Result<()> {
-    let source = if path.exists() {
-        fs::read_to_string(path)
-            .with_context(|| format!("failed to read TOML {}", path.display()))?
-    } else {
-        String::new()
-    };
-
-    let mut document = if source.trim().is_empty() {
-        DocumentMut::new()
-    } else {
-        source
-            .parse::<DocumentMut>()
-            .with_context(|| format!("invalid TOML {}", path.display()))?
-    };
-
-    for (key, value) in values {
-        set_toml_value(&mut document, key, value)
-            .with_context(|| format!("failed to patch TOML key {key:?}"))?;
-    }
-
-    fs::write(path, document.to_string().as_bytes())
+    fs::write(path, render_patched_toml(path, values)?)
         .with_context(|| format!("failed to write TOML {}", path.display()))
 }
 
