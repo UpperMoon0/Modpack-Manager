@@ -674,12 +674,73 @@ fn desired_install_files(manifest: &PatchManifest, target: Target) -> Result<Has
 }
 
 fn toml_patch_needed(path: &Path, values: &BTreeMap<String, serde_json::Value>) -> Result<bool> {
-    let current = if path.exists() {
-        fs::read(path).with_context(|| format!("failed to read TOML {}", path.display()))?
+    if !path.exists() {
+        return Ok(true);
+    }
+
+    let source = fs::read_to_string(path)
+        .with_context(|| format!("failed to read TOML {}", path.display()))?;
+    let document = if source.trim().is_empty() {
+        DocumentMut::new()
     } else {
-        Vec::new()
+        source
+            .parse::<DocumentMut>()
+            .with_context(|| format!("invalid TOML {}", path.display()))?
     };
-    Ok(current != render_patched_toml(path, values)?)
+
+    for (key, expected) in values {
+        if !toml_value_matches(&document, key, expected)? {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn toml_value_matches(
+    document: &DocumentMut,
+    dotted_key: &str,
+    expected: &serde_json::Value,
+) -> Result<bool> {
+    let parts: Vec<&str> = dotted_key.split('.').collect();
+    let (leaf, parents) = parts
+        .split_last()
+        .context("TOML key cannot be empty")?;
+
+    let mut table = document.as_table();
+    for part in parents {
+        let Some(item) = table.get(part) else {
+            return Ok(false);
+        };
+        table = item
+            .as_table()
+            .with_context(|| format!("TOML path component {part:?} is not a table"))?;
+    }
+
+    let Some(item) = table.get(leaf) else {
+        return Ok(false);
+    };
+
+    let matches = match expected {
+        serde_json::Value::Bool(value) => item.as_bool() == Some(*value),
+        serde_json::Value::String(value) => item.as_str() == Some(value.as_str()),
+        serde_json::Value::Number(value) => {
+            if let Some(value) = value.as_i64() {
+                item.as_integer() == Some(value)
+            } else if let Some(value) = value.as_u64() {
+                i64::try_from(value)
+                    .ok()
+                    .is_some_and(|value| item.as_integer() == Some(value))
+            } else if let Some(value) = value.as_f64() {
+                item.as_float() == Some(value)
+            } else {
+                false
+            }
+        }
+        _ => bail!("patchToml supports only scalar boolean, numeric, and string values"),
+    };
+
+    Ok(matches)
 }
 
 fn render_patched_toml(
