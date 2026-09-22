@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap};
 const GITHUB_RELEASE_LIMIT: usize = 30;
 const EXTRA_GAUGES_PROJECT: &str = "extra-gauges";
 
-const TFG_PROFILE_POLICY_VERSION: &str = "2026-09-21-horsepower-path-stress-v3";
+const TFG_PROFILE_POLICY_VERSION: &str = "2026-09-22-live-diff-precise-controls-v4";
 const TFG_HORSE_POWER_RECIPE: &str = r#"// priority: 0
 "use strict";
 
@@ -191,6 +191,16 @@ fn github_specs() -> Vec<GithubModSpec> {
             cleanup_patterns: &["mods/openui-mc-*.jar"],
             install_targets: vec![Target::Client],
             // Client-side only: remove stale copies from servers instead of installing it there.
+            cleanup_targets: both.clone(),
+        },
+        GithubModSpec {
+            id: "create-precise-controls",
+            name: "Create: Precise Controls",
+            repository: "UpperMoon0/Create-Precise-Controls",
+            asset_prefix: "create-precise-controls-forge-1.20.1-",
+            cleanup_patterns: &["mods/create-precise-controls-*.jar"],
+            install_targets: vec![Target::Client],
+            // Client-side only: keep dedicated servers clean if a client JAR was copied there.
             cleanup_targets: both.clone(),
         },
         GithubModSpec {
@@ -535,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn tfg_manifest_replaces_original_horse_power_and_keeps_openui_client_only() {
+    fn tfg_manifest_replaces_original_horse_power_and_keeps_client_only_mods_off_server() {
         let make = |id: &str, name: &str, targets: Vec<Target>| TfgResolvedMod {
             id: id.into(),
             name: name.into(),
@@ -549,6 +559,11 @@ mod tests {
 
         let patch = build_tfg_patch(vec![
             make("openui", "OpenUI MC", vec![Target::Client]),
+            make(
+                "create-precise-controls",
+                "Create: Precise Controls",
+                vec![Target::Client],
+            ),
             make(
                 "create-horse-power-ce",
                 "Create Horse Power - CE",
@@ -581,6 +596,24 @@ mod tests {
             operation,
             Operation::RemoveMatching { pattern, targets }
                 if pattern == "mods/openui-mc-*.jar"
+                    && targets.contains(&Target::Server)
+        )));
+
+        assert!(patch.manifest.operations.iter().any(|operation| matches!(
+            operation,
+            Operation::InstallFile { artifact, targets, .. }
+                if artifact == "create-precise-controls"
+                    && targets.as_slice() == [Target::Client]
+        )));
+        assert!(!patch.manifest.operations.iter().any(|operation| matches!(
+            operation,
+            Operation::InstallFile { artifact, targets, .. }
+                if artifact == "create-precise-controls" && targets.contains(&Target::Server)
+        )));
+        assert!(patch.manifest.operations.iter().any(|operation| matches!(
+            operation,
+            Operation::RemoveMatching { pattern, targets }
+                if pattern == "mods/create-precise-controls-*.jar"
                     && targets.contains(&Target::Server)
         )));
 

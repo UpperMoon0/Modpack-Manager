@@ -138,8 +138,13 @@ async fn main() -> Result<()> {
                     plan.root,
                     plan.target.as_str()
                 );
-                for item in &plan.items {
-                    println!("  {:14} {:40} {}", item.kind, item.path, item.detail);
+                if plan.items.is_empty() {
+                    println!("  No managed filesystem changes.");
+                } else {
+                    println!("  {} managed filesystem change(s):", plan.items.len());
+                    for item in &plan.items {
+                        println!("  {:14} {:40} {}", item.kind, item.path, item.detail);
+                    }
                 }
                 for warning in &plan.warnings {
                     eprintln!("warning: {warning}");

@@ -12,6 +12,7 @@ Managed mods:
 | --- | --- | :---: | :---: |
 | Economy | GitHub Releases · UpperMoon0/Economy | yes | yes |
 | OpenUI MC | GitHub Releases · UpperMoon0/OpenUI-MC | yes | no |
+| Create: Precise Controls | GitHub Releases · UpperMoon0/Create-Precise-Controls | yes | no |
 | Simply Screens | GitHub Releases · UpperMoon0/Simply-Screens | yes | yes |
 | Simply Speakers | GitHub Releases · UpperMoon0/Simply-Speakers | yes | yes |
 | Create Horse Power - CE | GitHub Releases · UpperMoon0/CreateHorsePower-CE | yes | yes |
@@ -32,7 +33,7 @@ Important special cases:
 
 - `mods/createhorsepower-*.jar` is removed before Create Horse Power - CE is installed. This removes both the original Create Horse Power mod and previous CE builds.
 - TFG Core intentionally redirects Forge `SERVER` configs to the game-level `defaultconfigs/` directory. For Create Horse Power - CE, `defaultconfigs/createhorsepower-server.toml` is therefore the authoritative live TFG config; the managed profile does not patch `world/serverconfig/` copies.
-- OpenUI is installed on clients only. On the server, any old `openui-mc-*.jar` is removed and no replacement is installed.
+- OpenUI and Create: Precise Controls are installed on clients only. On the server, stale `openui-mc-*.jar` and `create-precise-controls-*.jar` copies are removed and no replacement is installed.
 - historical filename variants for Simply Screens, Simply Speakers and Building Gadgets Extra are also cleaned up.
 
 The TFG folder must contain:
@@ -47,8 +48,8 @@ This prevents selecting an unrelated Minecraft instance accidentally.
 
 1. Enter or browse to the TFG game directory.
 2. Modpack Manager resolves current releases from GitHub and Modrinth.
-3. Review the exact managed mod versions and filesystem plan.
-4. Click **Update TFG managed mods**.
+3. Review the exact managed mod versions and the live filesystem diff against the desired patch state. Already-correct managed files are omitted from the diff.
+4. Click **Apply TFG managed changes**.
 5. All referenced artifacts are verified before any filesystem mutation.
 6. Old managed JARs are backed up and removed.
 7. Current managed JARs are installed.
@@ -67,9 +68,11 @@ The wrapper defaults to the TFG profile:
 
     ./scripts/patch-server.sh /srv/tfg
 
-Preview only:
+Preview the live server-state diff without applying anything:
 
     DRY_RUN=1 ./scripts/patch-server.sh /srv/tfg
+
+The normal server wrapper prints the same live diff immediately before applying it.
 
 `PATCH_CHANNEL` and `PATCH_MANIFEST` remain available as generic overrides for other patch sets.
 
@@ -93,6 +96,8 @@ Safety guarantees include:
 - per-installation locking;
 - backups under `.modpack-manager/backups`;
 - automatic rollback after a failed later operation;
+- live pre-patch diffing for managed files, text and TOML overlays;
+- no-op skipping so already-correct managed files are not rewritten;
 - separate client and server patch state.
 
 ## Modpack Manager self-update
