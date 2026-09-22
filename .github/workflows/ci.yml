@@ -20,6 +20,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: node --check scripts/prepare-release.mjs
+      - run: node --check scripts/prepare-windows-signing.mjs
 
   rust:
     runs-on: ubuntu-latest
