@@ -20,13 +20,17 @@ fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + "\n");
 
 const cargoPath = "Cargo.toml";
 const cargo = fs.readFileSync(cargoPath, "utf8");
+const workspaceVersionPattern =
+  /(\[workspace\.package\][\s\S]*?\nversion = ")[^"]+(")/;
+
+if (!workspaceVersionPattern.test(cargo)) {
+  throw new Error("Could not find workspace package version in Cargo.toml");
+}
+
 const updatedCargo = cargo.replace(
-  /(\[workspace\.package\][\s\S]*?\nversion = ")[^"]+(")/,
+  workspaceVersionPattern,
   "$1" + version + "$2"
 );
-if (updatedCargo === cargo) {
-  throw new Error("Could not update workspace package version in Cargo.toml");
-}
 fs.writeFileSync(cargoPath, updatedCargo);
 
 console.log("Prepared Modpack Manager release " + version);
