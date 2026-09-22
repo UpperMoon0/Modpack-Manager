@@ -66,19 +66,37 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: npm install --no-audit --no-fund
+
+      - id: updater-signing
+        name: Detect updater signing key
+        shell: pwsh
+        env:
+          RAW_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          $enabled = -not [string]::IsNullOrWhiteSpace($env:RAW_TAURI_SIGNING_PRIVATE_KEY)
+          "enabled=$($enabled.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          if ($enabled) {
+            Write-Host "Updater signing key is configured; signed updater artifacts will be published"
+          } else {
+            Write-Host "Updater signing key is not configured; publishing installable Windows bundles without updater artifacts"
+          }
+
       - name: Prepare tagged app version and updater artifacts
+        if: steps.updater-signing.outputs.enabled == 'true'
         run: node scripts/prepare-release.mjs "${{ needs.resolve-version.outputs.tag }}"
+
+      - name: Prepare installer-only tagged app version
+        if: steps.updater-signing.outputs.enabled != 'true'
+        run: node scripts/prepare-release.mjs "${{ needs.resolve-version.outputs.tag }}" --no-updater-artifacts
+
       - name: Normalize and validate updater signing key
+        if: steps.updater-signing.outputs.enabled == 'true'
         shell: pwsh
         env:
           RAW_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           $ErrorActionPreference = "Stop"
           $raw = $env:RAW_TAURI_SIGNING_PRIVATE_KEY
-          if ([string]::IsNullOrWhiteSpace($raw)) {
-            throw "TAURI_SIGNING_PRIVATE_KEY is empty"
-          }
-
           $trimmed = $raw.Trim()
           $keyContent = $null
 
@@ -106,7 +124,7 @@ jobs:
                 $keyContent = "untrusted comment: minisign encrypted secret key`n$trimmed"
               }
             } catch {
-              # The format error below is intentionally generic so secret contents stay private.
+              # Keep the failure generic so secret contents stay private.
             }
           }
 
@@ -156,6 +174,7 @@ jobs:
           )
           "TAURI_SIGNING_PRIVATE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "Updater signing key format and key id validated"
+
       - name: Build and publish Windows client
         uses: tauri-apps/tauri-action@v0
         env:
@@ -167,13 +186,16 @@ jobs:
           releaseBody: |
             TFG Modpack Manager desktop client and server patch CLI.
 
-            This release includes live installation diffing, managed TFG patching,
-            automatic compatible-mod resolution, self-update support, and
-            Create: Precise Controls as a client-only managed mod.
+            Includes live installation diffing, managed TFG patching, automatic
+            compatible-mod resolution, and Create: Precise Controls as a
+            client-only managed mod.
+
+            The desktop app contains self-update support. Signed updater artifacts
+            are published when the repository updater signing key is configured.
           releaseCommitish: ${{ github.sha }}
           releaseDraft: false
           prerelease: false
-          uploadUpdaterSignatures: true
+          uploadUpdaterSignatures: ${{ steps.updater-signing.outputs.enabled }}
 
   linux-server-cli:
     needs: [resolve-version, windows-client]
