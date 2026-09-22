@@ -2,14 +2,60 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    paths:
+      - "VERSION"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: modpack-manager-release
+  cancel-in-progress: false
+
 jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Resolve release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "VERSION must contain SemVer, got: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+  validate:
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npm run build
+      - run: cargo test -p patch-core -p modpackctl
+      - run: cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
+      - run: node scripts/prepare-release.mjs "${{ needs.resolve-version.outputs.tag }}"
+
   windows-client:
+    needs: [resolve-version, validate]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,21 +66,29 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: npm install --no-audit --no-fund
       - name: Prepare tagged app version and updater artifacts
-        run: node scripts/prepare-release.mjs "${{ github.ref_name }}"
-      - uses: tauri-apps/tauri-action@v1
+        run: node scripts/prepare-release.mjs "${{ needs.resolve-version.outputs.tag }}"
+      - name: Build and publish Windows client
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Modpack Manager ${{ github.ref_name }}"
+          tagName: ${{ needs.resolve-version.outputs.tag }}
+          releaseName: "Modpack Manager ${{ needs.resolve-version.outputs.tag }}"
+          releaseBody: |
+            TFG Modpack Manager desktop client and server patch CLI.
+
+            This release includes live installation diffing, managed TFG patching,
+            automatic compatible-mod resolution, self-update support, and
+            Create: Precise Controls as a client-only managed mod.
+          releaseCommitish: ${{ github.sha }}
           releaseDraft: false
           prerelease: false
           uploadUpdaterSignatures: true
 
   linux-server-cli:
-    needs: windows-client
+    needs: [resolve-version, windows-client]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +105,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" \
+          gh release upload "${{ needs.resolve-version.outputs.tag }}" \
             modpackctl-linux-x86_64.tar.gz \
             modpackctl-linux-x86_64.tar.gz.sha256 \
             --clobber
