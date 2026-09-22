@@ -20,6 +20,21 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: node --check scripts/prepare-release.mjs
+      - run: node --check scripts/prepare-windows-signing.mjs
+      - name: Exercise Windows signing config helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/prepare-windows-signing.mjs 0123456789ABCDEF0123456789ABCDEF01234567
+          node - <<'NODE'
+          const fs = require("fs");
+          const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+          const windows = config.bundle?.windows ?? {};
+          if (windows.certificateThumbprint !== "0123456789ABCDEF0123456789ABCDEF01234567") process.exit(1);
+          if (windows.digestAlgorithm !== "sha256") process.exit(1);
+          if (!windows.timestampUrl) process.exit(1);
+          NODE
+          git checkout -- src-tauri/tauri.conf.json
 
   rust:
     runs-on: ubuntu-latest
