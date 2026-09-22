@@ -115,6 +115,8 @@ Updater releases are signed. Release CI requires:
 
 The public verification key is embedded in `src-tauri/tauri.conf.json`; the private key is never committed.
 
+Public Windows releases are also Authenticode-signed with a CA-trusted Code Signing certificate. Release CI requires `WINDOWS_CERTIFICATE` and `WINDOWS_CERTIFICATE_PASSWORD`, keeps the GitHub release in draft state until both the EXE and MSI validate as signed, and publishes final SHA-256 checksums. Unsigned or self-signed stable Windows releases are rejected. See [CODE_SIGNING.md](CODE_SIGNING.md).
+
 ## Development
 
 Frontend:
