@@ -401,3 +401,94 @@ async fn optional_patch_toml_does_not_create_missing_active_world_config() {
             .exists()
     );
 }
+
+
+#[tokio::test]
+async fn plan_reports_only_live_drift_and_apply_preserves_matching_managed_files() {
+    use std::collections::BTreeMap;
+
+    let root = basic_root();
+    fs::create_dir_all(root.path().join("defaultconfigs")).unwrap();
+
+    let payloads = tempfile::tempdir().unwrap();
+    let jar = payloads.path().join("managed-new.jar");
+    fs::write(&jar, b"desired-jar").unwrap();
+    let source = manifest_source(&payloads);
+
+    fs::write(root.path().join("mods/managed-new.jar"), b"desired-jar").unwrap();
+    fs::write(root.path().join("mods/managed-old.jar"), b"stale").unwrap();
+    fs::write(root.path().join("config/managed.txt"), b"desired\n").unwrap();
+    fs::write(
+        root.path().join("defaultconfigs/managed.toml"),
+        "enabled = true\n",
+    )
+    .unwrap();
+
+    let mut values = BTreeMap::new();
+    values.insert("enabled".into(), serde_json::Value::from(true));
+
+    let manifest = PatchManifest {
+        schema_version: 1,
+        id: "live-diff".into(),
+        name: "Live diff".into(),
+        version: "1".into(),
+        description: String::new(),
+        required_paths: vec!["mods".into(), "config".into(), "defaultconfigs".into()],
+        artifacts: vec![artifact("managed", &jar)],
+        operations: vec![
+            Operation::RemoveMatching {
+                pattern: "mods/managed-*.jar".into(),
+                targets: vec![Target::Client],
+            },
+            Operation::InstallFile {
+                artifact: "managed".into(),
+                destination: "mods/managed-new.jar".into(),
+                targets: vec![Target::Client],
+            },
+            Operation::WriteText {
+                destination: "config/managed.txt".into(),
+                content: "desired\n".into(),
+                targets: vec![Target::Client],
+            },
+            Operation::PatchToml {
+                destination: "defaultconfigs/managed.toml".into(),
+                values,
+                skip_if_missing: false,
+                targets: vec![Target::Client],
+            },
+        ],
+    };
+
+    let plan = plan_manifest(&manifest, root.path(), Target::Client).unwrap();
+    assert_eq!(plan.items.len(), 1);
+    assert_eq!(plan.items[0].kind, "remove");
+    assert_eq!(plan.items[0].path, "mods/managed-old.jar");
+
+    let result = apply_manifest(
+        &manifest,
+        source.to_str().unwrap(),
+        root.path(),
+        Target::Client,
+        None,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result.changed_paths, 1);
+    assert_eq!(
+        fs::read(root.path().join("mods/managed-new.jar")).unwrap(),
+        b"desired-jar"
+    );
+
+    let clean_plan = plan_manifest(&manifest, root.path(), Target::Client).unwrap();
+    assert!(clean_plan.already_applied);
+    assert!(clean_plan.items.is_empty());
+
+    fs::write(root.path().join("mods/managed-new.jar"), b"tampered").unwrap();
+    let drift = plan_manifest(&manifest, root.path(), Target::Client).unwrap();
+    assert!(drift.already_applied);
+    assert_eq!(drift.items.len(), 1);
+    assert_eq!(drift.items[0].kind, "replace");
+    assert_eq!(drift.items[0].path, "mods/managed-new.jar");
+    assert!(drift.warnings.iter().any(|warning| warning.contains("live installation")));
+}
