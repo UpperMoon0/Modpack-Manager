@@ -2,6 +2,9 @@ import fs from "node:fs";
 
 const raw = process.argv[2] ?? "";
 const version = raw.startsWith("v") ? raw.slice(1) : raw;
+const createUpdaterArtifacts = !process.argv
+  .slice(3)
+  .includes("--no-updater-artifacts");
 
 if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
   throw new Error("Expected a SemVer tag such as v1.2.3; got " + raw);
@@ -15,7 +18,7 @@ fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + "\n");
 const tauriPath = "src-tauri/tauri.conf.json";
 const tauri = JSON.parse(fs.readFileSync(tauriPath, "utf8"));
 tauri.version = version;
-tauri.bundle.createUpdaterArtifacts = true;
+tauri.bundle.createUpdaterArtifacts = createUpdaterArtifacts;
 fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + "\n");
 
 const cargoPath = "Cargo.toml";
@@ -33,4 +36,8 @@ const updatedCargo = cargo.replace(
 );
 fs.writeFileSync(cargoPath, updatedCargo);
 
-console.log("Prepared Modpack Manager release " + version);
+console.log(
+  "Prepared Modpack Manager release " +
+    version +
+    (createUpdaterArtifacts ? " with updater artifacts" : " without updater artifacts")
+);
