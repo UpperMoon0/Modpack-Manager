@@ -49,7 +49,7 @@ This prevents selecting an unrelated Minecraft instance accidentally.
 1. Enter or browse to the TFG game directory.
 2. Modpack Manager resolves current releases from GitHub and Modrinth.
 3. Review the exact managed mod versions and the live filesystem diff against the desired patch state. Already-correct managed files are omitted from the diff.
-4. Click **Update TFG managed mods**.
+4. Click **Apply TFG managed changes**.
 5. All referenced artifacts are verified before any filesystem mutation.
 6. Old managed JARs are backed up and removed.
 7. Current managed JARs are installed.
