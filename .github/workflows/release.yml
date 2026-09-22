@@ -68,11 +68,98 @@ jobs:
       - run: npm install --no-audit --no-fund
       - name: Prepare tagged app version and updater artifacts
         run: node scripts/prepare-release.mjs "${{ needs.resolve-version.outputs.tag }}"
+      - name: Normalize and validate updater signing key
+        shell: pwsh
+        env:
+          RAW_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $raw = $env:RAW_TAURI_SIGNING_PRIVATE_KEY
+          if ([string]::IsNullOrWhiteSpace($raw)) {
+            throw "TAURI_SIGNING_PRIVATE_KEY is empty"
+          }
+
+          $trimmed = $raw.Trim()
+          $keyContent = $null
+
+          if ($trimmed.StartsWith("untrusted comment:")) {
+            $keyContent = $trimmed
+          }
+
+          if (-not $keyContent) {
+            $escaped = $trimmed -replace '\\r\\n', "`r`n"
+            $escaped = $escaped -replace '\\n', "`n"
+            if ($escaped.StartsWith("untrusted comment:")) {
+              $keyContent = $escaped
+            }
+          }
+
+          if (-not $keyContent) {
+            try {
+              $decodedBytes = [Convert]::FromBase64String($trimmed)
+              $decodedText = [Text.Encoding]::UTF8.GetString($decodedBytes).Trim()
+              if ($decodedText.StartsWith("untrusted comment:")) {
+                $keyContent = $decodedText
+              } elseif ($decodedBytes.Length -ge 62 -and
+                        $decodedBytes[0] -eq 0x45 -and
+                        $decodedBytes[1] -eq 0x64) {
+                $keyContent = "untrusted comment: minisign encrypted secret key`n$trimmed"
+              }
+            } catch {
+              # The format error below is intentionally generic so secret contents stay private.
+            }
+          }
+
+          if (-not $keyContent) {
+            throw "TAURI_SIGNING_PRIVATE_KEY is not recognizable minisign private-key content"
+          }
+
+          $secretLines = $keyContent -split "\r?\n" | Where-Object { $_.Trim().Length -gt 0 }
+          if ($secretLines.Count -lt 2 -or -not $secretLines[0].StartsWith("untrusted comment:")) {
+            throw "Normalized updater private key is missing the minisign header"
+          }
+
+          try {
+            [byte[]]$secretBlob = [Convert]::FromBase64String($secretLines[1].Trim())
+          } catch {
+            throw "Normalized updater private key payload is not valid base64"
+          }
+          if ($secretBlob.Length -lt 62) {
+            throw "Normalized updater private key payload is too short"
+          }
+
+          $tauri = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
+          try {
+            $publicFile = [Text.Encoding]::UTF8.GetString(
+              [Convert]::FromBase64String([string]$tauri.plugins.updater.pubkey)
+            )
+            $publicLines = $publicFile -split "\r?\n" | Where-Object { $_.Trim().Length -gt 0 }
+            [byte[]]$publicBlob = [Convert]::FromBase64String($publicLines[1].Trim())
+          } catch {
+            throw "Embedded updater public key could not be parsed"
+          }
+          if ($publicBlob.Length -lt 10) {
+            throw "Embedded updater public key payload is too short"
+          }
+
+          $publicKeyId = [Convert]::ToHexString([byte[]]$publicBlob[2..9])
+          $secretKeyId = [Convert]::ToHexString([byte[]]$secretBlob[54..61])
+          if ($publicKeyId -ne $secretKeyId) {
+            throw "Updater private key does not match the public key embedded in tauri.conf.json"
+          }
+
+          $keyPath = Join-Path $env:RUNNER_TEMP "tauri-updater.key"
+          [IO.File]::WriteAllText(
+            $keyPath,
+            $keyContent + "`n",
+            [Text.UTF8Encoding]::new($false)
+          )
+          "TAURI_SIGNING_PRIVATE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Updater signing key format and key id validated"
       - name: Build and publish Windows client
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ needs.resolve-version.outputs.tag }}
