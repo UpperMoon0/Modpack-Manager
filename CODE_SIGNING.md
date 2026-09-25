@@ -2,26 +2,18 @@
 
 Modpack Manager treats Windows Authenticode signing and Tauri updater signing as two separate trust boundaries.
 
-## Public Windows releases
+## Windows Authenticode signing
 
-Stable Windows releases must:
+Windows Authenticode signing is optional and independent from Tauri updater signing.
 
-- be built by the repository's GitHub Actions release workflow;
-- be Authenticode-signed with a Code Signing certificate whose chain is trusted by Windows;
-- use a certificate with the Code Signing EKU and an available private key;
-- use SHA-256 and a trusted timestamp service;
-- keep the GitHub release in draft state until the generated EXE and MSI both pass `Get-AuthenticodeSignature` with status `Valid`;
-- publish SHA-256 checksums for the final signed installers;
-- use the same trusted publisher identity across releases whenever possible so Windows reputation can accumulate.
-
-Self-signed certificates are not accepted for public releases. Unsigned debug/development builds are for development only and must not be published as stable releases.
-
-The release workflow currently accepts a PFX certificate through these GitHub Actions secrets:
+When both GitHub Actions secrets are configured:
 
 - `WINDOWS_CERTIFICATE`: base64-encoded PFX bytes;
-- `WINDOWS_CERTIFICATE_PASSWORD`: PFX import password.
+- `WINDOWS_CERTIFICATE_PASSWORD`: PFX import password;
 
-A future HSM/cloud signing integration may replace the PFX transport without weakening the verification requirements above.
+release CI imports the certificate, requires a private Code Signing certificate with a valid Windows trust chain and Code Signing EKU, configures SHA-256 signing with a timestamp service, and verifies the generated EXE and MSI with `Get-AuthenticodeSignature` before publishing the draft release.
+
+If neither Windows certificate secret is configured, release CI skips Authenticode and publishes the normal Windows installers unsigned at the Windows publisher layer. Supplying only one of the two secrets is a configuration error. Self-signed certificates are not treated as trusted Authenticode identities.
 
 ## Tauri updater signing
 
@@ -38,4 +30,4 @@ Updater private keys and passwords must never be committed to the repository or 
 
 ## Release rule
 
-A missing trusted Windows signing identity or missing updater signing key is a release blocker. The workflow must fail rather than fall back to a publicly downloadable unsigned installer.
+A missing updater signing key is a release blocker. A missing Windows Authenticode certificate is not. Stable releases must publish Tauri-signed updater artifacts; Windows Authenticode is applied only when a trusted certificate is configured.

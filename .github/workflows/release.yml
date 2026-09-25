@@ -67,26 +67,43 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: npm install --no-audit --no-fund
 
-      - name: Require signed-release credentials
+      - name: Require updater signing credentials
         shell: pwsh
         env:
           RAW_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           $ErrorActionPreference = "Stop"
           $missing = @()
           if ([string]::IsNullOrWhiteSpace($env:RAW_TAURI_SIGNING_PRIVATE_KEY)) { $missing += "TAURI_SIGNING_PRIVATE_KEY" }
           if ([string]::IsNullOrWhiteSpace($env:RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) { $missing += "TAURI_SIGNING_PRIVATE_KEY_PASSWORD" }
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) { $missing += "WINDOWS_CERTIFICATE" }
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) { $missing += "WINDOWS_CERTIFICATE_PASSWORD" }
           if ($missing.Count -gt 0) {
-            throw ("Stable Windows releases require updater signing and trusted Authenticode signing. Missing: " + ($missing -join ", "))
+            throw ("Stable releases require Tauri updater signing. Missing: " + ($missing -join ", "))
           }
 
+      - id: windows-signing
+        name: Detect optional Windows Authenticode credentials
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $hasCertificate = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)
+          $hasPassword = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)
+          if ($hasCertificate -xor $hasPassword) {
+            throw "Configure both WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD, or neither"
+          }
+          $enabled = $hasCertificate -and $hasPassword
+          "enabled=$($enabled.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          if ($enabled) {
+            Write-Host "Windows Authenticode signing is enabled"
+          } else {
+            Write-Host "Windows Authenticode signing is not configured; installers will be built without it"
+          }
       - id: windows-cert
         name: Import and validate trusted Windows code-signing certificate
+        if: steps.windows-signing.outputs.enabled == 'true'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -141,97 +158,68 @@ jobs:
         run: node scripts/prepare-release.mjs "${{ needs.resolve-version.outputs.tag }}"
 
       - name: Configure trusted Windows Authenticode signing
+        if: steps.windows-signing.outputs.enabled == 'true'
         run: node scripts/prepare-windows-signing.mjs "${{ steps.windows-cert.outputs.thumbprint }}"
 
       - name: Normalize and validate updater signing key
         shell: pwsh
         env:
           RAW_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          RELEASE_VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
           $ErrorActionPreference = "Stop"
           $raw = $env:RAW_TAURI_SIGNING_PRIVATE_KEY
+          $password = $env:RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD
           $trimmed = $raw.Trim()
-          $keyContent = $null
-
-          if ($trimmed.StartsWith("untrusted comment:")) {
-            $keyContent = $trimmed
-          }
-
-          if (-not $keyContent) {
-            $escaped = $trimmed -replace '\\r\\n', "`r`n"
-            $escaped = $escaped -replace '\\n', "`n"
-            if ($escaped.StartsWith("untrusted comment:")) {
-              $keyContent = $escaped
-            }
-          }
-
-          if (-not $keyContent) {
-            try {
-              $decodedBytes = [Convert]::FromBase64String($trimmed)
-              $decodedText = [Text.Encoding]::UTF8.GetString($decodedBytes).Trim()
-              if ($decodedText.StartsWith("untrusted comment:")) {
-                $keyContent = $decodedText
-              } elseif ($decodedBytes.Length -ge 62 -and
-                        $decodedBytes[0] -eq 0x45 -and
-                        $decodedBytes[1] -eq 0x64) {
-                $keyContent = "untrusted comment: minisign encrypted secret key`n$trimmed"
-              }
-            } catch {
-              # Keep the failure generic so secret contents stay private.
-            }
-          }
-
-          if (-not $keyContent) {
-            throw "TAURI_SIGNING_PRIVATE_KEY is not recognizable minisign private-key content"
-          }
-
-          $secretLines = $keyContent -split "\r?\n" | Where-Object { $_.Trim().Length -gt 0 }
-          if ($secretLines.Count -lt 2 -or -not $secretLines[0].StartsWith("untrusted comment:")) {
-            throw "Normalized updater private key is missing the minisign header"
-          }
-
           try {
-            [byte[]]$secretBlob = [Convert]::FromBase64String($secretLines[1].Trim())
+            $decoded = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($trimmed)).Trim()
           } catch {
-            throw "Normalized updater private key payload is not valid base64"
+            throw "Updater signing key is not valid Tauri base64 key content"
           }
-          if ($secretBlob.Length -lt 62) {
-            throw "Normalized updater private key payload is too short"
-          }
-
-          $tauri = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
-          try {
-            $publicFile = [Text.Encoding]::UTF8.GetString(
-              [Convert]::FromBase64String([string]$tauri.plugins.updater.pubkey)
-            )
-            $publicLines = $publicFile -split "\r?\n" | Where-Object { $_.Trim().Length -gt 0 }
-            [byte[]]$publicBlob = [Convert]::FromBase64String($publicLines[1].Trim())
-          } catch {
-            throw "Embedded updater public key could not be parsed"
-          }
-          if ($publicBlob.Length -lt 10) {
-            throw "Embedded updater public key payload is too short"
-          }
-
-          $publicKeyId = [Convert]::ToHexString([byte[]]$publicBlob[2..9])
-          $secretKeyId = [Convert]::ToHexString([byte[]]$secretBlob[54..61])
-          if ($publicKeyId -ne $secretKeyId) {
-            throw "Updater private key does not match the public key embedded in tauri.conf.json"
+          if (-not $decoded.StartsWith("untrusted comment:")) {
+            throw "Updater signing key does not decode to a Tauri secret-key box"
           }
 
           $keyPath = Join-Path $env:RUNNER_TEMP "tauri-updater.key"
-          [IO.File]::WriteAllText(
-            $keyPath,
-            $keyContent + "`n",
-            [Text.UTF8Encoding]::new($false)
-          )
-          "TAURI_SIGNING_PRIVATE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Updater signing key format and key id validated"
+          [IO.File]::WriteAllText($keyPath, $trimmed + "`n", [Text.UTF8Encoding]::new($false))
+          $probePath = Join-Path $env:RUNNER_TEMP "tauri-updater-key-probe.bin"
+          $signaturePath = $probePath + ".sig"
+          Remove-Item -LiteralPath $signaturePath -Force -ErrorAction SilentlyContinue
+          [IO.File]::WriteAllText($probePath, "modpack-manager-updater-key-probe", [Text.UTF8Encoding]::new($false))
 
-      - name: Build signed Windows client into draft release
+          & ".\node_modules\.bin\tauri.cmd" signer sign $probePath --private-key-path $keyPath --password $password --app-version $env:RELEASE_VERSION
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $signaturePath)) {
+            throw "Tauri could not sign a probe with the configured updater key"
+          }
+
+          try {
+            $signatureFile = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((Get-Content $signaturePath -Raw).Trim()))
+            $signatureLines = $signatureFile -split "\r?\n" | Where-Object { $_.Trim().Length -gt 0 }
+            [byte[]]$signatureBlob = [Convert]::FromBase64String($signatureLines[1].Trim())
+            $tauri = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
+            $publicFile = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([string]$tauri.plugins.updater.pubkey))
+            $publicLines = $publicFile -split "\r?\n" | Where-Object { $_.Trim().Length -gt 0 }
+            [byte[]]$publicBlob = [Convert]::FromBase64String($publicLines[1].Trim())
+          } catch {
+            throw "Could not parse updater probe signature or embedded public key"
+          }
+          if ($signatureBlob.Length -lt 10 -or $publicBlob.Length -lt 10) { throw "Updater key payload is too short" }
+          $signatureKeyId = ([BitConverter]::ToString([byte[]]$signatureBlob[2..9])).Replace("-", "")
+          $publicKeyId = ([BitConverter]::ToString([byte[]]$publicBlob[2..9])).Replace("-", "")
+          if ($signatureKeyId -ne $publicKeyId) {
+            throw "Updater private key does not match the public key embedded in tauri.conf.json"
+          }
+
+          "TAURI_SIGNING_PRIVATE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Remove-Item -LiteralPath $probePath,$signaturePath -Force -ErrorAction SilentlyContinue
+          Write-Host "Updater signing key validated against embedded public key"
+
+      - name: Build Windows client into draft release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ needs.resolve-version.outputs.tag }}
@@ -239,21 +227,20 @@ jobs:
           releaseBody: |
             TFG Modpack Manager desktop client and server patch CLI.
 
-            Windows installers are Authenticode-signed with a trusted Code Signing
-            certificate. Tauri updater artifacts are separately signed for
-            cryptographic update verification.
+            Tauri updater artifacts are signed for cryptographic update verification.
           releaseCommitish: ${{ github.sha }}
           releaseDraft: true
           prerelease: false
           uploadUpdaterSignatures: true
 
-      - name: Verify published Windows bundle signatures
+      - name: Verify Windows Authenticode signatures
+        if: steps.windows-signing.outputs.enabled == 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $bundles = Get-ChildItem -LiteralPath target\release\bundle -Recurse -File |
             Where-Object { $_.Extension -in @(".exe", ".msi") }
-          if ($bundles.Count -lt 2) { throw "Expected signed NSIS and MSI bundles" }
+          if ($bundles.Count -lt 2) { throw "Expected NSIS and MSI bundles" }
 
           foreach ($bundle in $bundles) {
             $signature = Get-AuthenticodeSignature -LiteralPath $bundle.FullName
