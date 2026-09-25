@@ -182,7 +182,7 @@ jobs:
           }
 
           $keyPath = Join-Path $env:RUNNER_TEMP "tauri-updater.key"
-          [IO.File]::WriteAllText($keyPath, $trimmed + "`n", [Text.UTF8Encoding]::new($false))
+          [IO.File]::WriteAllText($keyPath, $trimmed, [Text.UTF8Encoding]::new($false))
           $probePath = Join-Path $env:RUNNER_TEMP "tauri-updater-key-probe.bin"
           $signaturePath = $probePath + ".sig"
           Remove-Item -LiteralPath $signaturePath -Force -ErrorAction SilentlyContinue
