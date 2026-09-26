@@ -53,6 +53,10 @@ jobs:
         run: |
           ROOT="$RUNNER_TEMP/tfg-smoke"
           mkdir -p "$ROOT/mods" "$ROOT/config" "$ROOT/kubejs" "$ROOT/defaultconfigs"
+          cat > "$ROOT/config/gtceu.yaml" <<'YAML'
+          machines:
+            shouldWeatherOrTerrainExplosion: true
+          YAML
           : > "$ROOT/defaultconfigs/createhorsepower-server.toml"
           : > "$ROOT/mods/createhorsepower-legacy.jar"
           : > "$ROOT/mods/create-precise-controls-old.jar"
@@ -72,6 +76,8 @@ jobs:
           jq -e 'any(.items[]; .kind == "writeText" and .path == "kubejs/server_scripts/create_horse_power/recipes.js")' "$RUNNER_TEMP/tfg-server.json"
           jq -e 'any(.items[]; .kind == "patchToml" and .path == "defaultconfigs/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-client.json"
           jq -e 'any(.items[]; .kind == "patchToml" and .path == "defaultconfigs/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'all(.items[]; .kind != "patchYaml" or .path != "config/gtceu.yaml")' "$RUNNER_TEMP/tfg-client.json"
+          jq -e 'any(.items[]; .kind == "patchYaml" and .path == "config/gtceu.yaml")' "$RUNNER_TEMP/tfg-server.json"
           jq -e 'all(.items[]; .path != "world/serverconfig/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
           jq -e 'all(.items[]; .path != "serverconfig/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
 

@@ -212,6 +212,27 @@ pub fn plan_manifest(manifest: &PatchManifest, root: &Path, target: Target) -> R
                     detail: format!("Update {} managed TOML values", values.len()),
                 });
             }
+            Operation::PatchYaml {
+                destination,
+                values,
+                skip_if_missing,
+                ..
+            } => {
+                let path = root.join(destination);
+                ensure_no_symlink_components(root, Path::new(destination))?;
+                if *skip_if_missing && !path.exists() {
+                    continue;
+                }
+                if !yaml_patch_needed(&path, values)? {
+                    continue;
+                }
+
+                items.push(PlanItem {
+                    kind: "patchYaml".into(),
+                    path: destination.clone(),
+                    detail: format!("Update {} managed YAML values", values.len()),
+                });
+            }
         }
     }
 
@@ -428,6 +449,25 @@ pub async fn apply_manifest(
                         fs::create_dir_all(parent)?;
                     }
                     patch_toml_file(&destination, values)?;
+                }
+                Operation::PatchYaml {
+                    destination,
+                    values,
+                    skip_if_missing,
+                    ..
+                } => {
+                    let relative = PathBuf::from(destination);
+                    ensure_no_symlink_components(root, &relative)?;
+                    let destination = root.join(&relative);
+                    if *skip_if_missing && !destination.exists() {
+                        continue;
+                    }
+                    if !yaml_patch_needed(&destination, values)? {
+                        continue;
+                    }
+
+                    transaction.backup_once(&relative, &progress)?;
+                    patch_yaml_file(&destination, values)?;
                 }
             }
 
@@ -857,12 +897,166 @@ fn operation_message(operation: &Operation) -> String {
         Operation::ExtractZip { destination, .. } => format!("Updating {destination}"),
         Operation::WriteText { destination, .. } => format!("Writing {destination}"),
         Operation::PatchToml { destination, .. } => format!("Patching TOML {destination}"),
+        Operation::PatchYaml { destination, .. } => format!("Patching YAML {destination}"),
     }
 }
 
 fn patch_toml_file(path: &Path, values: &BTreeMap<String, serde_json::Value>) -> Result<()> {
     fs::write(path, render_patched_toml(path, values)?)
         .with_context(|| format!("failed to write TOML {}", path.display()))
+}
+
+fn yaml_patch_needed(path: &Path, values: &BTreeMap<String, serde_json::Value>) -> Result<bool> {
+    if !path.exists() {
+        bail!("YAML file {} does not exist", path.display());
+    }
+
+    let source = fs::read_to_string(path)
+        .with_context(|| format!("failed to read YAML {}", path.display()))?;
+    Ok(render_patched_yaml(&source, values)? != source)
+}
+
+fn patch_yaml_file(path: &Path, values: &BTreeMap<String, serde_json::Value>) -> Result<()> {
+    if !path.exists() {
+        bail!("YAML file {} does not exist", path.display());
+    }
+
+    let source = fs::read_to_string(path)
+        .with_context(|| format!("failed to read YAML {}", path.display()))?;
+    let rendered = render_patched_yaml(&source, values)?;
+    fs::write(path, rendered)
+        .with_context(|| format!("failed to write YAML {}", path.display()))
+}
+
+fn render_patched_yaml(
+    source: &str,
+    values: &BTreeMap<String, serde_json::Value>,
+) -> Result<String> {
+    let line_ending = if source.contains("\r\n") { "\r\n" } else { "\n" };
+    let had_trailing_newline = source.ends_with('\n');
+    let mut lines: Vec<String> = source.lines().map(str::to_owned).collect();
+
+    for (dotted_key, value) in values {
+        let target: Vec<&str> = dotted_key.split('.').collect();
+        let rendered_value = render_yaml_scalar(value)?;
+        let mut stack: Vec<(usize, String)> = Vec::new();
+        let mut matched_line = None;
+
+        for (index, line) in lines.iter().enumerate() {
+            let Some((indent, key, remainder)) = yaml_mapping_line(line) else {
+                continue;
+            };
+
+            while stack.last().is_some_and(|(parent_indent, _)| *parent_indent >= indent) {
+                stack.pop();
+            }
+
+            let mut current: Vec<&str> = stack.iter().map(|(_, key)| key.as_str()).collect();
+            current.push(key);
+
+            if current == target {
+                if matched_line.replace(index).is_some() {
+                    bail!("YAML key {dotted_key:?} is ambiguous");
+                }
+                if matches!(remainder.trim_start().chars().next(), Some('|' | '>')) {
+                    bail!("YAML key {dotted_key:?} is not a scalar value");
+                }
+            }
+
+            let trimmed_remainder = remainder.trim();
+            if trimmed_remainder.is_empty() || trimmed_remainder.starts_with('#') {
+                stack.push((indent, key.to_owned()));
+            }
+        }
+
+        let index = matched_line.with_context(|| format!("YAML key {dotted_key:?} was not found"))?;
+        let line = &lines[index];
+        let colon = line
+            .find(':')
+            .context("matched YAML mapping unexpectedly has no colon")?;
+        let remainder = &line[colon + 1..];
+        let inline_comment = yaml_inline_comment(remainder);
+        let mut replacement = format!("{}: {}", &line[..colon], rendered_value);
+        if let Some(comment) = inline_comment {
+            replacement.push(' ');
+            replacement.push_str(comment);
+        }
+        lines[index] = replacement;
+    }
+
+    let mut rendered = lines.join(line_ending);
+    if had_trailing_newline {
+        rendered.push_str(line_ending);
+    }
+    Ok(rendered)
+}
+
+fn yaml_mapping_line(line: &str) -> Option<(usize, &str, &str)> {
+    let content = line.trim_start_matches(' ');
+    let indent = line.len() - content.len();
+    if content.is_empty() || content.starts_with('#') || content.starts_with('-') {
+        return None;
+    }
+
+    let (raw_key, remainder) = content.split_once(':')?;
+    let key = raw_key.trim();
+    if key.is_empty()
+        || !key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+    {
+        return None;
+    }
+
+    Some((indent, key, remainder))
+}
+
+fn yaml_inline_comment(remainder: &str) -> Option<&str> {
+    let mut single_quoted = false;
+    let mut double_quoted = false;
+    let mut escaped = false;
+
+    for (index, character) in remainder.char_indices() {
+        if double_quoted && escaped {
+            escaped = false;
+            continue;
+        }
+        if double_quoted && character == '\\' {
+            escaped = true;
+            continue;
+        }
+        if !double_quoted && character == '\'' {
+            single_quoted = !single_quoted;
+            continue;
+        }
+        if !single_quoted && character == '"' {
+            double_quoted = !double_quoted;
+            continue;
+        }
+        if character == '#' && !single_quoted && !double_quoted {
+            let preceded_by_space = index == 0
+                || remainder[..index]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_whitespace);
+            if preceded_by_space {
+                return Some(remainder[index..].trim_end());
+            }
+        }
+    }
+
+    None
+}
+
+fn render_yaml_scalar(value: &serde_json::Value) -> Result<String> {
+    match value {
+        serde_json::Value::Bool(value) => Ok(value.to_string()),
+        serde_json::Value::Number(value) => Ok(value.to_string()),
+        serde_json::Value::String(value) => {
+            serde_json::to_string(value).context("failed to serialize YAML string scalar")
+        }
+        _ => bail!("patchYaml supports only scalar boolean, numeric, and string values"),
+    }
 }
 
 fn set_toml_value(

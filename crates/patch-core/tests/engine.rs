@@ -492,3 +492,84 @@ async fn plan_reports_only_live_drift_and_apply_preserves_matching_managed_files
     assert_eq!(drift.items[0].path, "mods/managed-new.jar");
     assert!(drift.warnings.iter().any(|warning| warning.contains("live installation")));
 }
+
+
+#[tokio::test]
+async fn patch_yaml_updates_nested_scalar_and_preserves_unrelated_gtceu_config() {
+    use std::collections::BTreeMap;
+
+    let root = basic_root();
+    let config_path = root.path().join("config/gtceu.yaml");
+    fs::write(
+        &config_path,
+        r#"machines:
+  requireGTToolsForBlocks: true
+  shouldWeatherOrTerrainExplosion: true
+  energyUsageMultiplier: 100
+  doesExplosionDamagesTerrain: true
+
+recipes:
+  harderBrickRecipes: true
+"#,
+    )
+    .unwrap();
+
+    let mut values = BTreeMap::new();
+    values.insert(
+        "machines.shouldWeatherOrTerrainExplosion".into(),
+        serde_json::Value::from(false),
+    );
+
+    let manifest = PatchManifest {
+        schema_version: 1,
+        id: "yaml-overlay".into(),
+        name: "YAML overlay".into(),
+        version: "1".into(),
+        description: String::new(),
+        required_paths: vec!["config/gtceu.yaml".into()],
+        artifacts: vec![],
+        operations: vec![Operation::PatchYaml {
+            destination: "config/gtceu.yaml".into(),
+            values,
+            skip_if_missing: false,
+            targets: vec![Target::Server],
+        }],
+    };
+
+    let plan = plan_manifest(&manifest, root.path(), Target::Server).unwrap();
+    assert_eq!(plan.items.len(), 1);
+    assert_eq!(plan.items[0].kind, "patchYaml");
+
+    let source = manifest_source(&root);
+    let first = apply_manifest(
+        &manifest,
+        source.to_str().unwrap(),
+        root.path(),
+        Target::Server,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(first.changed_paths, 1);
+
+    let patched = fs::read_to_string(&config_path).unwrap();
+    assert!(patched.contains("  shouldWeatherOrTerrainExplosion: false"));
+    assert!(patched.contains("  requireGTToolsForBlocks: true"));
+    assert!(patched.contains("  energyUsageMultiplier: 100"));
+    assert!(patched.contains("  doesExplosionDamagesTerrain: true"));
+    assert!(patched.contains("recipes:\n  harderBrickRecipes: true"));
+
+    let clean_plan = plan_manifest(&manifest, root.path(), Target::Server).unwrap();
+    assert!(clean_plan.items.is_empty());
+
+    let second = apply_manifest(
+        &manifest,
+        source.to_str().unwrap(),
+        root.path(),
+        Target::Server,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(second.changed_paths, 0);
+}
