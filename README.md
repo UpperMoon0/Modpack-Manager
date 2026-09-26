@@ -4,26 +4,24 @@ A Tauri + React + Rust updater for maintaining the NsTut TFG Forge 1.20.1 client
 
 ## TFG managed profile
 
-The desktop client asks only for the TFG modpack folder. It resolves compatible releases at runtime and builds a patch plan automatically.
+The desktop client asks only for the TFG modpack folder. TFG policy is authored in the UpperMoon0/Modpack-Modern fork. Modpack Manager reads the nstut/stable release pointer, then consumes the immutable tag named by that pointer.
 
 Managed mods:
 
 | Mod | Source | Client | Server |
 | --- | --- | :---: | :---: |
-| Economy | GitHub Releases · UpperMoon0/Economy | yes | yes |
-| OpenUI MC | GitHub Releases · UpperMoon0/OpenUI-MC | yes | no |
-| Create: Precise Controls | GitHub Releases · UpperMoon0/Create-Precise-Controls | yes | no |
-| Simply Screens | GitHub Releases · UpperMoon0/Simply-Screens | yes | yes |
-| Simply Speakers | GitHub Releases · UpperMoon0/Simply-Speakers | yes | yes |
-| Create Horse Power - CE | GitHub Releases · UpperMoon0/CreateHorsePower-CE | yes | yes |
-| Building Gadgets Extra | GitHub Releases · UpperMoon0/Building-Gadgets-Extra | yes | yes |
-| Create: Extra Gauges | Modrinth · extra-gauges | yes | yes |
+| Economy | GitHub ? UpperMoon0/Economy | yes | yes |
+| OpenUI MC | GitHub ? UpperMoon0/OpenUI-MC | yes | no |
+| Create: Precise Controls | GitHub ? UpperMoon0/Create-Precise-Controls | yes | no |
+| Simply Screens | GitHub ? UpperMoon0/Simply-Screens | yes | yes |
+| Simply Speakers | GitHub ? UpperMoon0/Simply-Speakers | yes | yes |
+| Create Horse Power - CE | GitHub ? UpperMoon0/CreateHorsePower-CE | yes | yes |
+| Building Gadgets Extra | GitHub ? UpperMoon0/Building-Gadgets-Extra | yes | yes |
+| Create: Extra Gauges | Modrinth ? extra-gauges | yes | yes |
 
-For GitHub-hosted mods, the resolver scans stable releases and selects the newest asset whose filename is the Forge 1.20.1 production JAR. A newer 1.21-only release does not displace the newest compatible 1.20.1 release.
+Managed mod versions and exact Forge 1.20.1 artifact hashes are pinned in the TFG fork. Updating a managed mod is an explicit fork commit, so upstream-pack merges and mod-version changes are reviewed together instead of being resolved implicitly at runtime.
 
-Create: Extra Gauges is resolved from the Modrinth API filtered to Minecraft 1.20.1 + Forge and selects the newest stable release.
-
-The resulting artifact checksums are taken from GitHub release SHA-256 digests or Modrinth hashes. If a source does not provide a digest, Modpack Manager downloads the artifact once to derive its SHA-256 before constructing the patch plan.
+All managed artifacts are selected and hashed in the fork. Modpack Manager verifies those pinned SHA-256 values before modifying an installation.
 
 ### Replacement behavior
 
@@ -47,7 +45,7 @@ This prevents selecting an unrelated Minecraft instance accidentally.
 ## Desktop flow
 
 1. Enter or browse to the TFG game directory.
-2. Modpack Manager resolves current releases from GitHub and Modrinth.
+2. Modpack Manager loads the pinned generated overlay and managed-mod metadata from the NsTut TFG fork.
 3. Review the exact managed mod versions and the live filesystem diff against the desired patch state. Already-correct managed files are omitted from the diff.
 4. Click **Apply TFG managed changes**.
 5. All referenced artifacts are verified before any filesystem mutation.
@@ -55,11 +53,11 @@ This prevents selecting an unrelated Minecraft instance accidentally.
 7. Current managed JARs are installed.
 8. If a later operation fails, touched paths are rolled back.
 
-The client checks TFG releases automatically every 30 minutes while open.
+The client rechecks the fork release pointer while open. Publishing a compatible TFG overlay only requires creating a new immutable fork tag and promoting nstut/stable; it does not require a Modpack Manager rebuild.
 
 ## Server flow
 
-The server CLI uses the same built-in TFG profile:
+The server CLI uses the same fork-generated TFG profile:
 
     modpackctl plan --tfg --target server --root /srv/tfg
     modpackctl apply --tfg --target server --root /srv/tfg
@@ -88,6 +86,7 @@ Supported operations:
 - `writeText`
 - `patchToml`
 - `patchYaml`
+- `patchSnbt`
 
 Safety guarantees include:
 
@@ -98,7 +97,7 @@ Safety guarantees include:
 - per-installation locking;
 - backups under `.modpack-manager/backups`;
 - automatic rollback after a failed later operation;
-- live pre-patch diffing for managed files, text, TOML and YAML scalar overlays;
+- live pre-patch diffing for managed files, text, TOML, YAML and SNBT scalar overlays;
 - no-op skipping so already-correct managed files are not rewritten;
 - separate client and server patch state.
 
@@ -140,7 +139,7 @@ CI runs all of these, including the real Windows Tauri installer bundle.
 
 ## Repository layout
 
-    crates/patch-core/   TFG resolver + generic patch/channel/backup/rollback engine
+    crates/patch-core/   pinned TFG fork-manifest resolver + generic patch/channel/backup/rollback engine
     crates/modpackctl/   server/headless CLI
     src/                 React + TypeScript TFG UI and app updater
     src-tauri/           Tauri commands and updater plugins
