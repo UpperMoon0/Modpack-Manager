@@ -573,3 +573,178 @@ recipes:
     .unwrap();
     assert_eq!(second.changed_paths, 0);
 }
+
+
+#[tokio::test]
+async fn patch_snbt_resolves_level_name_and_replaces_all_rank_limits() {
+    use std::collections::BTreeMap;
+
+    let root = basic_root();
+    fs::write(root.path().join("server.properties"), "level-name=custom-world\n").unwrap();
+    let serverconfig = root.path().join("custom-world/serverconfig");
+    fs::create_dir_all(serverconfig.join("ftbranks")).unwrap();
+
+    fs::write(
+        serverconfig.join("ftbchunks-world.snbt"),
+        "{\n  max_claimed_chunks: 500\n  max_force_loaded_chunks: 25\n  unrelated: true\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        serverconfig.join("ftbranks/ranks.snbt"),
+        "{\n  member: {\n    ftbchunks.max_claimed: 50\n    ftbchunks.max_force_loaded: 8\n  }\n  admin: {\n    ftbchunks.max_claimed: 10000\n    ftbchunks.max_force_loaded: 10000\n  }\n}\n",
+    )
+    .unwrap();
+
+    let limits = BTreeMap::from([
+        ("max_claimed_chunks".into(), serde_json::Value::from(1_000_000)),
+        (
+            "max_force_loaded_chunks".into(),
+            serde_json::Value::from(1_000_000),
+        ),
+    ]);
+    let rank_limits = BTreeMap::from([
+        (
+            "ftbchunks.max_claimed".into(),
+            serde_json::Value::from(1_000_000),
+        ),
+        (
+            "ftbchunks.max_force_loaded".into(),
+            serde_json::Value::from(1_000_000),
+        ),
+    ]);
+
+    let manifest = PatchManifest {
+        schema_version: 1,
+        id: "snbt-overlay".into(),
+        name: "SNBT overlay".into(),
+        version: "1".into(),
+        description: String::new(),
+        required_paths: vec![],
+        artifacts: vec![],
+        operations: vec![
+            Operation::PatchSnbt {
+                destination: "{levelName}/serverconfig/ftbchunks-world.snbt".into(),
+                values: limits,
+                replace_all: false,
+                skip_if_missing: false,
+                targets: vec![Target::Server],
+            },
+            Operation::PatchSnbt {
+                destination: "{levelName}/serverconfig/ftbranks/ranks.snbt".into(),
+                values: rank_limits,
+                replace_all: true,
+                skip_if_missing: false,
+                targets: vec![Target::Server],
+            },
+        ],
+    };
+
+    let plan = plan_manifest(&manifest, root.path(), Target::Server).unwrap();
+    assert_eq!(plan.items.len(), 2);
+    assert!(plan.items.iter().all(|item| item.kind == "patchSnbt"));
+    assert!(plan
+        .items
+        .iter()
+        .all(|item| item.path.starts_with("custom-world/serverconfig/")));
+
+    let source = manifest_source(&root);
+    let first = apply_manifest(
+        &manifest,
+        source.to_str().unwrap(),
+        root.path(),
+        Target::Server,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(first.changed_paths, 2);
+
+    let chunks = fs::read_to_string(serverconfig.join("ftbchunks-world.snbt")).unwrap();
+    assert!(chunks.contains("max_claimed_chunks: 1000000"));
+    assert!(chunks.contains("max_force_loaded_chunks: 1000000"));
+    assert!(chunks.contains("unrelated: true"));
+
+    let ranks = fs::read_to_string(serverconfig.join("ftbranks/ranks.snbt")).unwrap();
+    assert_eq!(ranks.matches("ftbchunks.max_claimed: 1000000").count(), 2);
+    assert_eq!(
+        ranks.matches("ftbchunks.max_force_loaded: 1000000").count(),
+        2
+    );
+
+    let clean = plan_manifest(&manifest, root.path(), Target::Server).unwrap();
+    assert!(clean.items.is_empty());
+    let second = apply_manifest(
+        &manifest,
+        source.to_str().unwrap(),
+        root.path(),
+        Target::Server,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(second.changed_paths, 0);
+}
+
+#[test]
+fn patch_snbt_rejects_level_name_that_escapes_root() {
+    use std::collections::BTreeMap;
+
+    let root = basic_root();
+    fs::write(root.path().join("server.properties"), "level-name=../outside\n").unwrap();
+
+    let manifest = PatchManifest {
+        schema_version: 1,
+        id: "snbt-escape".into(),
+        name: "SNBT escape".into(),
+        version: "1".into(),
+        description: String::new(),
+        required_paths: vec![],
+        artifacts: vec![],
+        operations: vec![Operation::PatchSnbt {
+            destination: "{levelName}/serverconfig/ftbchunks-world.snbt".into(),
+            values: BTreeMap::from([(
+                "max_claimed_chunks".into(),
+                serde_json::Value::from(1_000_000),
+            )]),
+            replace_all: false,
+            skip_if_missing: true,
+            targets: vec![Target::Server],
+        }],
+    };
+
+    let error = plan_manifest(&manifest, root.path(), Target::Server).unwrap_err();
+    assert!(error.to_string().contains("escapes the modpack root"));
+}
+
+#[test]
+fn patch_snbt_deserializes_camel_case_options_from_manifest_json() {
+    let manifest: PatchManifest = serde_json::from_str(
+        r#"{
+          "schemaVersion": 1,
+          "id": "snbt-json",
+          "name": "SNBT JSON",
+          "version": "1",
+          "operations": [{
+            "type": "patchSnbt",
+            "destination": "{levelName}/serverconfig/ftbranks/ranks.snbt",
+            "values": {"ftbchunks.max_claimed": 1000000},
+            "replaceAll": true,
+            "skipIfMissing": true,
+            "targets": ["server"]
+          }]
+        }"#,
+    )
+    .unwrap();
+
+    match &manifest.operations[0] {
+        Operation::PatchSnbt {
+            replace_all,
+            skip_if_missing,
+            ..
+        } => {
+            assert!(*replace_all);
+            assert!(*skip_if_missing);
+        }
+        other => panic!("unexpected operation: {other:?}"),
+    }
+}

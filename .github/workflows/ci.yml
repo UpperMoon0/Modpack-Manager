@@ -46,13 +46,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p patch-core -p modpackctl
       - run: cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
-      - name: Resolve live TFG client/server profiles
+      - name: Resolve pinned TFG fork client/server profiles
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          MODPACK_MANAGER_TFG_RELEASE_INDEX: data/tfg-releases.json
+          MODPACK_MANAGER_TFG_MANIFEST: https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/nstut-0.13.10.2/nstut/modpack-manager.patch.json
+          MODPACK_MANAGER_TFG_MANAGED_MODS: https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/nstut-0.13.10.2/nstut/managed-mods.json
         run: |
           ROOT="$RUNNER_TEMP/tfg-smoke"
-          mkdir -p "$ROOT/mods" "$ROOT/config" "$ROOT/kubejs" "$ROOT/defaultconfigs"
+          mkdir -p "$ROOT/mods" "$ROOT/config" "$ROOT/kubejs" "$ROOT/defaultconfigs" "$ROOT/world/serverconfig/ftbranks"
+          echo 'level-name=world' > "$ROOT/server.properties"
           cat > "$ROOT/config/gtceu.yaml" <<'YAML'
           machines:
             shouldWeatherOrTerrainExplosion: true
@@ -60,6 +61,24 @@ jobs:
           : > "$ROOT/defaultconfigs/createhorsepower-server.toml"
           : > "$ROOT/mods/createhorsepower-legacy.jar"
           : > "$ROOT/mods/create-precise-controls-old.jar"
+          cat > "$ROOT/world/serverconfig/ftbchunks-world.snbt" <<'SNBT'
+          {
+            max_claimed_chunks: 500
+            max_force_loaded_chunks: 25
+          }
+          SNBT
+          cat > "$ROOT/world/serverconfig/ftbranks/ranks.snbt" <<'SNBT'
+          {
+            member: {
+              ftbchunks.max_claimed: 50
+              ftbchunks.max_force_loaded: 8
+            }
+            admin: {
+              ftbchunks.max_claimed: 10000
+              ftbchunks.max_force_loaded: 10000
+            }
+          }
+          SNBT
 
           cargo run --quiet -p modpackctl -- plan --tfg --target client --root "$ROOT" --json > "$RUNNER_TEMP/tfg-client.json"
           cargo run --quiet -p modpackctl -- plan --tfg --target server --root "$ROOT" --json > "$RUNNER_TEMP/tfg-server.json"
@@ -72,12 +91,15 @@ jobs:
           jq -e 'all(.items[]; .detail != "Install verified artifact create-precise-controls")' "$RUNNER_TEMP/tfg-server.json"
           jq -e 'any(.items[]; .kind == "remove" and .path == "mods/createhorsepower-legacy.jar")' "$RUNNER_TEMP/tfg-server.json"
           jq -e 'any(.items[]; .kind == "remove" and .path == "mods/create-precise-controls-old.jar")' "$RUNNER_TEMP/tfg-server.json"
-          jq -e 'any(.items[]; .kind == "writeText" and .path == "kubejs/server_scripts/create_horse_power/recipes.js")' "$RUNNER_TEMP/tfg-client.json"
-          jq -e 'any(.items[]; .kind == "writeText" and .path == "kubejs/server_scripts/create_horse_power/recipes.js")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'all(.items[]; .path != "kubejs/server_scripts/create_horse_power/recipes.js")' "$RUNNER_TEMP/tfg-client.json"
+          jq -e 'all(.items[]; .path != "kubejs/server_scripts/create_horse_power/recipes.js")' "$RUNNER_TEMP/tfg-server.json"
           jq -e 'any(.items[]; .kind == "patchToml" and .path == "defaultconfigs/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-client.json"
           jq -e 'any(.items[]; .kind == "patchToml" and .path == "defaultconfigs/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
           jq -e 'all(.items[]; .kind != "patchYaml" or .path != "config/gtceu.yaml")' "$RUNNER_TEMP/tfg-client.json"
           jq -e 'any(.items[]; .kind == "patchYaml" and .path == "config/gtceu.yaml")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'all(.items[]; .kind != "patchSnbt")' "$RUNNER_TEMP/tfg-client.json"
+          jq -e 'any(.items[]; .kind == "patchSnbt" and .path == "world/serverconfig/ftbchunks-world.snbt")' "$RUNNER_TEMP/tfg-server.json"
+          jq -e 'any(.items[]; .kind == "patchSnbt" and .path == "world/serverconfig/ftbranks/ranks.snbt")' "$RUNNER_TEMP/tfg-server.json"
           jq -e 'all(.items[]; .path != "world/serverconfig/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
           jq -e 'all(.items[]; .path != "serverconfig/createhorsepower-server.toml")' "$RUNNER_TEMP/tfg-server.json"
 
