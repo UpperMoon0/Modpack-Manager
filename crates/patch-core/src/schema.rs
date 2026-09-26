@@ -83,6 +83,14 @@ pub enum Operation {
         #[serde(default)]
         targets: Vec<Target>,
     },
+    PatchYaml {
+        destination: String,
+        values: BTreeMap<String, JsonValue>,
+        #[serde(default)]
+        skip_if_missing: bool,
+        #[serde(default)]
+        targets: Vec<Target>,
+    },
 }
 
 fn default_true() -> bool {
@@ -96,7 +104,8 @@ impl Operation {
             | Self::InstallFile { targets, .. }
             | Self::ExtractZip { targets, .. }
             | Self::WriteText { targets, .. }
-            | Self::PatchToml { targets, .. } => targets,
+            | Self::PatchToml { targets, .. }
+            | Self::PatchYaml { targets, .. } => targets,
         }
     }
 
@@ -194,6 +203,21 @@ pub fn validate_manifest(manifest: &PatchManifest) -> Result<()> {
                         .with_context(|| format!("invalid patchToml value for {key:?}"))?;
                 }
             }
+            Operation::PatchYaml {
+                destination,
+                values,
+                ..
+            } => {
+                validate_file_destination(destination, "patchYaml")?;
+                if values.is_empty() {
+                    bail!("patchYaml values cannot be empty");
+                }
+                for (key, value) in values {
+                    validate_yaml_key(key)?;
+                    validate_yaml_value(value)
+                        .with_context(|| format!("invalid patchYaml value for {key:?}"))?;
+                }
+            }
         }
     }
 
@@ -284,6 +308,17 @@ fn validate_toml_value(value: &JsonValue) -> Result<()> {
     match value {
         JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => Ok(()),
         _ => bail!("patchToml supports only boolean, numeric, and string scalar values"),
+    }
+}
+
+fn validate_yaml_key(value: &str) -> Result<()> {
+    validate_toml_key(value).context("invalid YAML dotted key")
+}
+
+fn validate_yaml_value(value: &JsonValue) -> Result<()> {
+    match value {
+        JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => Ok(()),
+        _ => bail!("patchYaml supports only boolean, numeric, and string scalar values"),
     }
 }
 

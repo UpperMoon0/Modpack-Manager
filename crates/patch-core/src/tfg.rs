@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 const TFG_RELEASE_INDEX: &str = "https://raw.githubusercontent.com/UpperMoon0/Modpack-Manager/main/data/tfg-releases.json";
 
-const TFG_PROFILE_POLICY_VERSION: &str = "2026-09-22-live-diff-precise-controls-v4";
+const TFG_PROFILE_POLICY_VERSION: &str = "2026-09-26-gtceu-weather-safety-v5";
 const TFG_HORSE_POWER_RECIPE: &str = r#"// priority: 0
 "use strict";
 
@@ -316,6 +316,18 @@ fn build_tfg_patch(mods: Vec<TfgResolvedMod>) -> TfgResolvedPatch {
         targets: both.clone(),
     });
 
+    let mut gtceu_config = BTreeMap::new();
+    gtceu_config.insert(
+        "machines.shouldWeatherOrTerrainExplosion".into(),
+        serde_json::Value::from(false),
+    );
+    operations.push(Operation::PatchYaml {
+        destination: "config/gtceu.yaml".into(),
+        values: gtceu_config,
+        skip_if_missing: false,
+        targets: vec![Target::Server],
+    });
+
     let identity = format!(
         "{}|{}",
         TFG_PROFILE_POLICY_VERSION,
@@ -336,6 +348,7 @@ fn build_tfg_patch(mods: Vec<TfgResolvedMod>) -> TfgResolvedPatch {
             required_paths: vec![
                 "mods".into(),
                 "config".into(),
+                "config/gtceu.yaml".into(),
                 "kubejs".into(),
                 "defaultconfigs/createhorsepower-server.toml".into(),
             ],
@@ -468,6 +481,15 @@ mod tests {
             Operation::PatchToml { destination, .. }
                 if destination == "world/serverconfig/createhorsepower-server.toml"
                     || destination == "serverconfig/createhorsepower-server.toml"
+        )));
+        assert!(patch.manifest.operations.iter().any(|operation| matches!(
+            operation,
+            Operation::PatchYaml { destination, values, skip_if_missing, targets }
+                if destination == "config/gtceu.yaml"
+                    && !skip_if_missing
+                    && values.get("machines.shouldWeatherOrTerrainExplosion")
+                        == Some(&serde_json::Value::Bool(false))
+                    && targets.as_slice() == [Target::Server]
         )));
     }
 }

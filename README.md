@@ -86,6 +86,8 @@ Supported operations:
 - `installFile`
 - `extractZip`
 - `writeText`
+- `patchToml`
+- `patchYaml`
 
 Safety guarantees include:
 
@@ -96,7 +98,7 @@ Safety guarantees include:
 - per-installation locking;
 - backups under `.modpack-manager/backups`;
 - automatic rollback after a failed later operation;
-- live pre-patch diffing for managed files, text and TOML overlays;
+- live pre-patch diffing for managed files, text, TOML and YAML scalar overlays;
 - no-op skipping so already-correct managed files are not rewritten;
 - separate client and server patch state.
 
