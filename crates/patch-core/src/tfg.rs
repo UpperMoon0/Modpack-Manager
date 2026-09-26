@@ -1,12 +1,11 @@
 use crate::schema::{Artifact, Operation, PatchManifest, Target};
-use crate::source::{load_bytes, load_text};
+use crate::source::load_text;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
-const GITHUB_RELEASE_LIMIT: usize = 30;
-const EXTRA_GAUGES_PROJECT: &str = "extra-gauges";
+const TFG_RELEASE_INDEX: &str = "https://raw.githubusercontent.com/UpperMoon0/Modpack-Manager/main/data/tfg-releases.json";
 
 const TFG_PROFILE_POLICY_VERSION: &str = "2026-09-22-live-diff-precise-controls-v4";
 const TFG_HORSE_POWER_RECIPE: &str = r#"// priority: 0
@@ -113,61 +112,91 @@ pub struct TfgResolvedPatch {
 #[derive(Clone)]
 struct GithubModSpec {
     id: &'static str,
-    name: &'static str,
-    repository: &'static str,
-    asset_prefix: &'static str,
     cleanup_patterns: &'static [&'static str],
     install_targets: Vec<Target>,
     cleanup_targets: Vec<Target>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct GithubRelease {
-    tag_name: String,
-    #[serde(default)]
-    draft: bool,
-    #[serde(default)]
-    prerelease: bool,
-    published_at: Option<String>,
-    #[serde(default)]
-    assets: Vec<GithubAsset>,
+#[serde(rename_all = "camelCase")]
+struct PublishedReleaseIndex {
+    schema_version: u32,
+    mods: Vec<PublishedRelease>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct GithubAsset {
+#[serde(rename_all = "camelCase")]
+struct PublishedRelease {
+    id: String,
     name: String,
-    browser_download_url: String,
-    digest: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ModrinthVersion {
-    version_number: String,
-    version_type: String,
-    date_published: String,
-    #[serde(default)]
-    files: Vec<ModrinthFile>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ModrinthFile {
+    version: String,
+    file_name: String,
+    source: String,
     url: String,
-    filename: String,
-    #[serde(default)]
-    primary: bool,
-    #[serde(default)]
-    hashes: HashMap<String, String>,
+    sha256: String,
 }
 
 pub async fn resolve_tfg_patch() -> Result<TfgResolvedPatch> {
+    let release_index_source = std::env::var("MODPACK_MANAGER_TFG_RELEASE_INDEX")
+        .unwrap_or_else(|_| TFG_RELEASE_INDEX.to_owned());
+    let body = load_text(&release_index_source)
+        .await
+        .context("failed to load the managed TFG release index")?;
+    let index: PublishedReleaseIndex =
+        serde_json::from_str(&body).context("managed TFG release index is invalid JSON")?;
+    if index.schema_version != 1 {
+        anyhow::bail!(
+            "unsupported managed TFG release index schema {}",
+            index.schema_version
+        );
+    }
+
+    let mut published = index
+        .mods
+        .into_iter()
+        .map(|release| (release.id.clone(), release))
+        .collect::<std::collections::HashMap<_, _>>();
     let mut mods = Vec::new();
 
     for spec in github_specs() {
-        mods.push(resolve_github_mod(&spec).await?);
+        let release = published
+            .remove(spec.id)
+            .with_context(|| format!("managed TFG release index is missing {}", spec.id))?;
+        mods.push(resolve_published_release(release, spec.install_targets)?);
     }
-    mods.push(resolve_extra_gauges().await?);
+
+    let extra = published
+        .remove("extra-gauges")
+        .context("managed TFG release index is missing extra-gauges")?;
+    mods.push(resolve_published_release(
+        extra,
+        vec![Target::Client, Target::Server],
+    )?);
 
     Ok(build_tfg_patch(mods))
+}
+
+fn resolve_published_release(
+    release: PublishedRelease,
+    targets: Vec<Target>,
+) -> Result<TfgResolvedMod> {
+    if release.sha256.len() != 64 || !release.sha256.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        anyhow::bail!("managed release {} has an invalid sha256", release.id);
+    }
+    if !release.url.starts_with("https://") {
+        anyhow::bail!("managed release {} has a non-HTTPS URL", release.id);
+    }
+
+    Ok(TfgResolvedMod {
+        id: release.id,
+        name: release.name,
+        version: release.version,
+        file_name: release.file_name,
+        source: release.source,
+        targets,
+        url: release.url,
+        sha256: release.sha256.to_ascii_lowercase(),
+    })
 }
 
 fn github_specs() -> Vec<GithubModSpec> {
@@ -176,18 +205,12 @@ fn github_specs() -> Vec<GithubModSpec> {
     vec![
         GithubModSpec {
             id: "economy",
-            name: "Economy",
-            repository: "UpperMoon0/Economy",
-            asset_prefix: "economy-forge-1.20.1-",
             cleanup_patterns: &["mods/economy-*.jar"],
             install_targets: both.clone(),
             cleanup_targets: both.clone(),
         },
         GithubModSpec {
             id: "openui",
-            name: "OpenUI MC",
-            repository: "UpperMoon0/OpenUI-MC",
-            asset_prefix: "openui-mc-forge-1.20.1-",
             cleanup_patterns: &["mods/openui-mc-*.jar"],
             install_targets: vec![Target::Client],
             // Client-side only: remove stale copies from servers instead of installing it there.
@@ -195,9 +218,6 @@ fn github_specs() -> Vec<GithubModSpec> {
         },
         GithubModSpec {
             id: "create-precise-controls",
-            name: "Create: Precise Controls",
-            repository: "UpperMoon0/Create-Precise-Controls",
-            asset_prefix: "create-precise-controls-forge-1.20.1-",
             cleanup_patterns: &["mods/create-precise-controls-*.jar"],
             install_targets: vec![Target::Client],
             // Client-side only: keep dedicated servers clean if a client JAR was copied there.
@@ -205,9 +225,6 @@ fn github_specs() -> Vec<GithubModSpec> {
         },
         GithubModSpec {
             id: "simply-screens",
-            name: "Simply Screens",
-            repository: "UpperMoon0/Simply-Screens",
-            asset_prefix: "simply_screens-forge-1.20.1-",
             cleanup_patterns: &[
                 "mods/simply_screens-*.jar",
                 "mods/simply-screens-*.jar",
@@ -217,9 +234,6 @@ fn github_specs() -> Vec<GithubModSpec> {
         },
         GithubModSpec {
             id: "simply-speakers",
-            name: "Simply Speakers",
-            repository: "UpperMoon0/Simply-Speakers",
-            asset_prefix: "simplyspeakers-forge-1.20.1-",
             cleanup_patterns: &[
                 "mods/simplyspeakers-*.jar",
                 "mods/simply_speakers-*.jar",
@@ -230,9 +244,6 @@ fn github_specs() -> Vec<GithubModSpec> {
         },
         GithubModSpec {
             id: "create-horse-power-ce",
-            name: "Create Horse Power - CE",
-            repository: "UpperMoon0/CreateHorsePower-CE",
-            asset_prefix: "createhorsepower-ce-1.20.1-",
             // Deliberately broad: removes the original mod and every previous CE build.
             cleanup_patterns: &["mods/createhorsepower-*.jar"],
             install_targets: both.clone(),
@@ -240,9 +251,6 @@ fn github_specs() -> Vec<GithubModSpec> {
         },
         GithubModSpec {
             id: "building-gadgets-extra",
-            name: "Building Gadgets Extra",
-            repository: "UpperMoon0/Building-Gadgets-Extra",
-            asset_prefix: "building-gadgets-extra-forge-1.20.1-",
             cleanup_patterns: &[
                 "mods/building-gadgets-extra-*.jar",
                 "mods/buildinggadgetsextra-*.jar",
@@ -251,133 +259,6 @@ fn github_specs() -> Vec<GithubModSpec> {
             cleanup_targets: both,
         },
     ]
-}
-
-async fn resolve_github_mod(spec: &GithubModSpec) -> Result<TfgResolvedMod> {
-    let url = format!(
-        "https://api.github.com/repos/{}/releases?per_page={}",
-        spec.repository, GITHUB_RELEASE_LIMIT
-    );
-    let body = load_text(&url)
-        .await
-        .with_context(|| format!("failed to load releases for {}", spec.repository))?;
-    let releases: Vec<GithubRelease> =
-        serde_json::from_str(&body).context("GitHub releases response is invalid JSON")?;
-
-    let (version, asset) = select_github_asset(&releases, spec.asset_prefix).with_context(|| {
-        format!(
-            "no stable Forge 1.20.1 release asset matching {:?} was found in {}",
-            spec.asset_prefix, spec.repository
-        )
-    })?;
-
-    let sha256 = match asset
-        .digest
-        .as_deref()
-        .and_then(|digest| digest.strip_prefix("sha256:"))
-        .filter(|digest| digest.len() == 64 && digest.chars().all(|ch| ch.is_ascii_hexdigit()))
-    {
-        Some(digest) => digest.to_ascii_lowercase(),
-        None => sha256_remote(&asset.browser_download_url).await?,
-    };
-
-    Ok(TfgResolvedMod {
-        id: spec.id.into(),
-        name: spec.name.into(),
-        version,
-        file_name: asset.name,
-        source: format!("GitHub · {}", spec.repository),
-        targets: spec.install_targets.clone(),
-        url: asset.browser_download_url,
-        sha256,
-    })
-}
-
-fn select_github_asset(
-    releases: &[GithubRelease],
-    asset_prefix: &str,
-) -> Option<(String, GithubAsset)> {
-    let mut stable: Vec<&GithubRelease> = releases
-        .iter()
-        .filter(|release| !release.draft && !release.prerelease)
-        .collect();
-    stable.sort_by(|left, right| right.published_at.cmp(&left.published_at));
-
-    for release in stable {
-        if let Some(asset) = release.assets.iter().find(|asset| {
-            asset.name.starts_with(asset_prefix)
-                && asset.name.ends_with(".jar")
-                && !asset.name.ends_with("-sources.jar")
-                && !asset.name.ends_with("-dev-shadow.jar")
-                && !asset.name.ends_with("-javadoc.jar")
-        }) {
-            return Some((
-                release.tag_name.trim_start_matches('v').to_owned(),
-                asset.clone(),
-            ));
-        }
-    }
-
-    None
-}
-
-async fn resolve_extra_gauges() -> Result<TfgResolvedMod> {
-    let query = "https://api.modrinth.com/v2/project/extra-gauges/version?game_versions=%5B%221.20.1%22%5D&loaders=%5B%22forge%22%5D";
-    let body = load_text(query)
-        .await
-        .context("failed to load Create: Extra Gauges versions from Modrinth")?;
-    let versions: Vec<ModrinthVersion> =
-        serde_json::from_str(&body).context("Modrinth versions response is invalid JSON")?;
-    let (version, file) = select_modrinth_release(&versions)
-        .context("Modrinth has no stable Forge 1.20.1 release for Create: Extra Gauges")?;
-
-    let sha256 = match file.hashes.get("sha256") {
-        Some(hash) => hash.to_ascii_lowercase(),
-        None => sha256_remote(&file.url).await?,
-    };
-
-    Ok(TfgResolvedMod {
-        id: "extra-gauges".into(),
-        name: "Create: Extra Gauges".into(),
-        version,
-        file_name: file.filename,
-        source: format!("Modrinth · {EXTRA_GAUGES_PROJECT}"),
-        targets: vec![Target::Client, Target::Server],
-        url: file.url,
-        sha256,
-    })
-}
-
-fn select_modrinth_release(versions: &[ModrinthVersion]) -> Option<(String, ModrinthFile)> {
-    let mut stable: Vec<&ModrinthVersion> = versions
-        .iter()
-        .filter(|version| version.version_type == "release")
-        .collect();
-    stable.sort_by(|left, right| right.date_published.cmp(&left.date_published));
-
-    for version in stable {
-        let Some(file) = version
-            .files
-            .iter()
-            .find(|file| file.primary)
-            .or_else(|| version.files.first())
-        else {
-            continue;
-        };
-
-        if file.filename.ends_with(".jar") {
-            return Some((version.version_number.clone(), file.clone()));
-        }
-    }
-
-    None
-}
-
-async fn sha256_remote(url: &str) -> Result<String> {
-    let bytes = load_bytes(url)
-        .await
-        .with_context(|| format!("failed to download {url} for checksum verification"))?;
-    Ok(hex::encode(Sha256::digest(bytes)))
 }
 
 fn build_tfg_patch(mods: Vec<TfgResolvedMod>) -> TfgResolvedPatch {
@@ -469,79 +350,25 @@ fn build_tfg_patch(mods: Vec<TfgResolvedMod>) -> TfgResolvedPatch {
 mod tests {
     use super::*;
 
-    fn asset(name: &str) -> GithubAsset {
-        GithubAsset {
-            name: name.into(),
-            browser_download_url: format!("https://example.invalid/{name}"),
-            digest: Some(format!("sha256:{}", "a".repeat(64))),
-        }
-    }
-
     #[test]
-    fn github_selection_skips_newer_incompatible_and_prerelease_releases() {
-        let releases = vec![
-            GithubRelease {
-                tag_name: "v2.0.0".into(),
-                draft: false,
-                prerelease: false,
-                published_at: Some("2026-09-20T00:00:00Z".into()),
-                assets: vec![asset("economy-neoforge-1.21.1-2.0.0.jar")],
+    fn published_release_validation_accepts_verified_https_release() {
+        let resolved = resolve_published_release(
+            PublishedRelease {
+                id: "economy".into(),
+                name: "Economy".into(),
+                version: "1.0.0".into(),
+                file_name: "economy-forge-1.20.1-1.0.0.jar".into(),
+                source: "GitHub · UpperMoon0/Economy".into(),
+                url: "https://example.invalid/economy.jar".into(),
+                sha256: "a".repeat(64),
             },
-            GithubRelease {
-                tag_name: "v1.5.0".into(),
-                draft: false,
-                prerelease: true,
-                published_at: Some("2026-09-19T00:00:00Z".into()),
-                assets: vec![asset("economy-forge-1.20.1-1.5.0.jar")],
-            },
-            GithubRelease {
-                tag_name: "v1.4.0".into(),
-                draft: false,
-                prerelease: false,
-                published_at: Some("2026-09-18T00:00:00Z".into()),
-                assets: vec![
-                    asset("economy-forge-1.20.1-1.4.0-sources.jar"),
-                    asset("economy-forge-1.20.1-1.4.0.jar"),
-                ],
-            },
-        ];
+            vec![Target::Client, Target::Server],
+        )
+        .unwrap();
 
-        let (version, selected) =
-            select_github_asset(&releases, "economy-forge-1.20.1-").unwrap();
-        assert_eq!(version, "1.4.0");
-        assert_eq!(selected.name, "economy-forge-1.20.1-1.4.0.jar");
-    }
-
-    #[test]
-    fn modrinth_selection_picks_latest_stable_primary_jar() {
-        let versions = vec![
-            ModrinthVersion {
-                version_number: "2.0.8-rc1".into(),
-                version_type: "beta".into(),
-                date_published: "2026-09-20T00:00:00Z".into(),
-                files: vec![ModrinthFile {
-                    url: "https://example.invalid/rc.jar".into(),
-                    filename: "extra_gauges-2.0.8-rc1.jar".into(),
-                    primary: true,
-                    hashes: HashMap::new(),
-                }],
-            },
-            ModrinthVersion {
-                version_number: "2.0.7".into(),
-                version_type: "release".into(),
-                date_published: "2025-10-02T00:00:00Z".into(),
-                files: vec![ModrinthFile {
-                    url: "https://example.invalid/release.jar".into(),
-                    filename: "extra_gauges-2.0.7.jar".into(),
-                    primary: true,
-                    hashes: HashMap::new(),
-                }],
-            },
-        ];
-
-        let (version, file) = select_modrinth_release(&versions).unwrap();
-        assert_eq!(version, "2.0.7");
-        assert_eq!(file.filename, "extra_gauges-2.0.7.jar");
+        assert_eq!(resolved.id, "economy");
+        assert_eq!(resolved.targets, vec![Target::Client, Target::Server]);
+        assert_eq!(resolved.sha256, "a".repeat(64));
     }
 
     #[test]
