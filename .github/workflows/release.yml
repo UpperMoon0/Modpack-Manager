@@ -51,6 +51,8 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: cargo test -p patch-core -p modpackctl
+      - run: bash -n scripts/patch-server.sh
+      - run: python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
       - run: cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
       - run: node --check scripts/prepare-release.mjs
       - run: node --check scripts/prepare-windows-signing.mjs
