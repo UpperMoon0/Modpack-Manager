@@ -49,6 +49,7 @@ jobs:
       - name: Resolve live TFG client/server profiles
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          MODPACK_MANAGER_TFG_RELEASE_INDEX: data/tfg-releases.json
         run: |
           ROOT="$RUNNER_TEMP/tfg-smoke"
           mkdir -p "$ROOT/mods" "$ROOT/config" "$ROOT/kubejs" "$ROOT/defaultconfigs"
