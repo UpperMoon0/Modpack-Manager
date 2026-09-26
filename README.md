@@ -106,7 +106,7 @@ The app uses the Tauri updater against:
 
     https://github.com/UpperMoon0/Modpack-Manager/releases/latest/download/latest.json
 
-It checks shortly after launch and every six hours. When a newer frontend release exists, the app can download, verify, install and relaunch itself without requiring the player to manually reinstall it.
+It checks on launch and every six hours. Application updates are presented in a global app-update area, separate from the selected TFG installation. When a newer signed release is detected, an in-app notification offers a one-click install-and-restart action. Silent automatic checks degrade quietly on transient network failures; manual checks report errors in the application panel.
 
 Updater releases are signed. Release CI requires:
 
