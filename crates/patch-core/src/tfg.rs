@@ -137,7 +137,9 @@ struct PublishedRelease {
 }
 
 pub async fn resolve_tfg_patch() -> Result<TfgResolvedPatch> {
-    let body = load_text(TFG_RELEASE_INDEX)
+    let release_index_source = std::env::var("MODPACK_MANAGER_TFG_RELEASE_INDEX")
+        .unwrap_or_else(|_| TFG_RELEASE_INDEX.to_owned());
+    let body = load_text(&release_index_source)
         .await
         .context("failed to load the managed TFG release index")?;
     let index: PublishedReleaseIndex =
