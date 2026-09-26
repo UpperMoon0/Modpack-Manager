@@ -46,10 +46,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p patch-core -p modpackctl
       - run: cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
-      - name: Resolve pinned TFG fork client/server profiles
-        env:
-          MODPACK_MANAGER_TFG_MANIFEST: https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/nstut-0.13.10.2/nstut/modpack-manager.patch.json
-          MODPACK_MANAGER_TFG_MANAGED_MODS: https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/nstut-0.13.10.2/nstut/managed-mods.json
+      - name: Resolve TFG fork stable client/server profiles
         run: |
           ROOT="$RUNNER_TEMP/tfg-smoke"
           mkdir -p "$ROOT/mods" "$ROOT/config" "$ROOT/kubejs" "$ROOT/defaultconfigs" "$ROOT/world/serverconfig/ftbranks"

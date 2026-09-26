@@ -4,8 +4,8 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-const TFG_FORK_MANIFEST: &str = "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/nstut-0.13.10.2/nstut/modpack-manager.patch.json";
-const TFG_FORK_MANAGED_MODS: &str = "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/nstut-0.13.10.2/nstut/managed-mods.json";
+const TFG_FORK_RELEASE: &str = "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/refs/heads/nstut/stable/nstut/release.json";
+const TFG_FORK_RAW_ROOT: &str = "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +24,14 @@ pub struct TfgResolvedMod {
 pub struct TfgResolvedPatch {
     pub manifest: PatchManifest,
     pub mods: Vec<TfgResolvedMod>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ForkRelease {
+    schema_version: u32,
+    overlay_version: String,
+    source_ref: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -47,10 +55,25 @@ struct ManagedMod {
 }
 
 pub async fn resolve_tfg_patch() -> Result<TfgResolvedPatch> {
+    let release_source = std::env::var("MODPACK_MANAGER_TFG_RELEASE")
+        .unwrap_or_else(|_| TFG_FORK_RELEASE.to_owned());
+    let release_body = load_text(&release_source)
+        .await
+        .context("failed to load the NsTut TFG stable release pointer")?;
+    let release: ForkRelease = serde_json::from_str(&release_body)
+        .context("NsTut TFG stable release pointer is invalid JSON")?;
+    if release.schema_version != 1 {
+        bail!(
+            "unsupported NsTut TFG release-pointer schema {}; expected 1",
+            release.schema_version
+        );
+    }
+    let (default_manifest_source, default_managed_mods_source) =
+        fork_tag_sources(&release.source_ref)?;
     let manifest_source = std::env::var("MODPACK_MANAGER_TFG_MANIFEST")
-        .unwrap_or_else(|_| TFG_FORK_MANIFEST.to_owned());
+        .unwrap_or(default_manifest_source);
     let managed_mods_source = std::env::var("MODPACK_MANAGER_TFG_MANAGED_MODS")
-        .unwrap_or_else(|_| TFG_FORK_MANAGED_MODS.to_owned());
+        .unwrap_or(default_managed_mods_source);
 
     let manifest_body = load_text(&manifest_source)
         .await
@@ -58,6 +81,13 @@ pub async fn resolve_tfg_patch() -> Result<TfgResolvedPatch> {
     let manifest: PatchManifest =
         serde_json::from_str(&manifest_body).context("NsTut TFG fork manifest is invalid JSON")?;
     validate_manifest(&manifest).context("NsTut TFG fork manifest failed validation")?;
+    if manifest.version != release.overlay_version {
+        bail!(
+            "NsTut TFG stable pointer expects overlay {}, but manifest declares {}",
+            release.overlay_version,
+            manifest.version
+        );
+    }
 
     let managed_body = load_text(&managed_mods_source)
         .await
@@ -81,6 +111,22 @@ pub async fn resolve_tfg_patch() -> Result<TfgResolvedPatch> {
     }
 
     Ok(TfgResolvedPatch { manifest, mods })
+}
+
+fn fork_tag_sources(source_ref: &str) -> Result<(String, String)> {
+    if source_ref.is_empty()
+        || !source_ref.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+        })
+    {
+        bail!("NsTut TFG sourceRef contains unsafe characters");
+    }
+
+    let base = format!("{TFG_FORK_RAW_ROOT}/{source_ref}/nstut");
+    Ok((
+        format!("{base}/modpack-manager.patch.json"),
+        format!("{base}/managed-mods.json"),
+    ))
 }
 
 fn resolve_managed_mod(manifest: &PatchManifest, managed: ManagedMod) -> Result<TfgResolvedMod> {
@@ -135,9 +181,9 @@ fn resolve_managed_mod(manifest: &PatchManifest, managed: ManagedMod) -> Result<
     }
 
     let source = if let Some(project) = managed.repository.strip_prefix("modrinth:") {
-        format!("Modrinth ? {project}")
+        format!("Modrinth - {project}")
     } else {
-        format!("GitHub ? {}", managed.repository)
+        format!("GitHub - {}", managed.repository)
     };
 
     Ok(TfgResolvedMod {
@@ -193,10 +239,25 @@ mod tests {
     }
 
     #[test]
+    fn fork_tag_sources_reject_unsafe_refs_and_build_immutable_urls() {
+        let (manifest, managed) = fork_tag_sources("nstut-0.13.10.2").unwrap();
+        assert_eq!(
+            manifest,
+            "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/nstut-0.13.10.2/nstut/modpack-manager.patch.json"
+        );
+        assert_eq!(
+            managed,
+            "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/nstut-0.13.10.2/nstut/managed-mods.json"
+        );
+        assert!(fork_tag_sources("../main").is_err());
+        assert!(fork_tag_sources("refs/heads/main").is_err());
+    }
+
+    #[test]
     fn managed_mod_must_match_fork_manifest_artifact_and_install() {
         let resolved = resolve_managed_mod(&fixture_manifest(), fixture_mod()).unwrap();
         assert_eq!(resolved.id, "economy");
-        assert_eq!(resolved.source, "GitHub ? UpperMoon0/Economy");
+        assert_eq!(resolved.source, "GitHub - UpperMoon0/Economy");
         assert_eq!(resolved.targets, vec![Target::Client, Target::Server]);
     }
 
