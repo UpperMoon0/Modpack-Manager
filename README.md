@@ -72,7 +72,7 @@ Preview the live server-state diff without applying anything:
 
     DRY_RUN=1 ./scripts/patch-server.sh /srv/tfg
 
-The normal server wrapper prints the same live diff immediately before applying it.
+The normal server wrapper prints the same live diff immediately before applying it. It also enforces the NsTut FTB Chunks policy on the active world: `1,000,000` claimed chunks and `1,000,000` force-loaded chunks. Existing `ftbchunks.max_claimed` and `ftbchunks.max_force_loaded` FTB Ranks overrides are updated to the same values while unrelated SNBT settings are preserved. The wrapper follows `level-name` from `server.properties`; `FTB_MAX_CLAIMED_CHUNKS` and `FTB_MAX_FORCE_LOADED_CHUNKS` can override the defaults.
 
 `PATCH_CHANNEL` and `PATCH_MANIFEST` remain available as generic overrides for other patch sets.
 

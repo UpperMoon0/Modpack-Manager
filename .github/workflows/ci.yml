@@ -45,6 +45,8 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p patch-core -p modpackctl
+      - run: bash -n scripts/patch-server.sh
+      - run: python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
       - run: cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
       - name: Resolve live TFG client/server profiles
         env:
