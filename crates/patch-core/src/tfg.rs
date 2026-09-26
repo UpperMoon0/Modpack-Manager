@@ -114,7 +114,7 @@ pub async fn resolve_tfg_patch() -> Result<TfgResolvedPatch> {
 }
 
 fn fork_tag_sources(source_ref: &str) -> Result<(String, String)> {
-    if source_ref.is_empty()
+    if !source_ref.starts_with("nstut-")
         || !source_ref.chars().all(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
         })
@@ -251,6 +251,8 @@ mod tests {
         );
         assert!(fork_tag_sources("../main").is_err());
         assert!(fork_tag_sources("refs/heads/main").is_err());
+        assert!(fork_tag_sources("..").is_err());
+        assert!(fork_tag_sources("0.13.10").is_err());
     }
 
     #[test]
