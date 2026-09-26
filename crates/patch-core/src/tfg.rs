@@ -348,7 +348,6 @@ fn build_tfg_patch(mods: Vec<TfgResolvedMod>) -> TfgResolvedPatch {
             required_paths: vec![
                 "mods".into(),
                 "config".into(),
-                "config/gtceu.yaml".into(),
                 "kubejs".into(),
                 "defaultconfigs/createhorsepower-server.toml".into(),
             ],
@@ -491,5 +490,14 @@ mod tests {
                         == Some(&serde_json::Value::Bool(false))
                     && targets.as_slice() == [Target::Server]
         )));
+
+        assert!(
+            !patch
+                .manifest
+                .required_paths
+                .iter()
+                .any(|path| path == "config/gtceu.yaml"),
+            "server-only GTCEu config must not be a global client requirement"
+        );
     }
 }
