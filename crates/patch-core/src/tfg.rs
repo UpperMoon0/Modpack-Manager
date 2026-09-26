@@ -112,9 +112,6 @@ pub struct TfgResolvedPatch {
 #[derive(Clone)]
 struct GithubModSpec {
     id: &'static str,
-    name: &'static str,
-    repository: &'static str,
-    asset_prefix: &'static str,
     cleanup_patterns: &'static [&'static str],
     install_targets: Vec<Target>,
     cleanup_targets: Vec<Target>,
@@ -206,18 +203,12 @@ fn github_specs() -> Vec<GithubModSpec> {
     vec![
         GithubModSpec {
             id: "economy",
-            name: "Economy",
-            repository: "UpperMoon0/Economy",
-            asset_prefix: "economy-forge-1.20.1-",
             cleanup_patterns: &["mods/economy-*.jar"],
             install_targets: both.clone(),
             cleanup_targets: both.clone(),
         },
         GithubModSpec {
             id: "openui",
-            name: "OpenUI MC",
-            repository: "UpperMoon0/OpenUI-MC",
-            asset_prefix: "openui-mc-forge-1.20.1-",
             cleanup_patterns: &["mods/openui-mc-*.jar"],
             install_targets: vec![Target::Client],
             // Client-side only: remove stale copies from servers instead of installing it there.
@@ -225,9 +216,6 @@ fn github_specs() -> Vec<GithubModSpec> {
         },
         GithubModSpec {
             id: "create-precise-controls",
-            name: "Create: Precise Controls",
-            repository: "UpperMoon0/Create-Precise-Controls",
-            asset_prefix: "create-precise-controls-forge-1.20.1-",
             cleanup_patterns: &["mods/create-precise-controls-*.jar"],
             install_targets: vec![Target::Client],
             // Client-side only: keep dedicated servers clean if a client JAR was copied there.
@@ -235,9 +223,6 @@ fn github_specs() -> Vec<GithubModSpec> {
         },
         GithubModSpec {
             id: "simply-screens",
-            name: "Simply Screens",
-            repository: "UpperMoon0/Simply-Screens",
-            asset_prefix: "simply_screens-forge-1.20.1-",
             cleanup_patterns: &[
                 "mods/simply_screens-*.jar",
                 "mods/simply-screens-*.jar",
@@ -247,9 +232,6 @@ fn github_specs() -> Vec<GithubModSpec> {
         },
         GithubModSpec {
             id: "simply-speakers",
-            name: "Simply Speakers",
-            repository: "UpperMoon0/Simply-Speakers",
-            asset_prefix: "simplyspeakers-forge-1.20.1-",
             cleanup_patterns: &[
                 "mods/simplyspeakers-*.jar",
                 "mods/simply_speakers-*.jar",
@@ -260,9 +242,6 @@ fn github_specs() -> Vec<GithubModSpec> {
         },
         GithubModSpec {
             id: "create-horse-power-ce",
-            name: "Create Horse Power - CE",
-            repository: "UpperMoon0/CreateHorsePower-CE",
-            asset_prefix: "createhorsepower-ce-1.20.1-",
             // Deliberately broad: removes the original mod and every previous CE build.
             cleanup_patterns: &["mods/createhorsepower-*.jar"],
             install_targets: both.clone(),
@@ -270,9 +249,6 @@ fn github_specs() -> Vec<GithubModSpec> {
         },
         GithubModSpec {
             id: "building-gadgets-extra",
-            name: "Building Gadgets Extra",
-            repository: "UpperMoon0/Building-Gadgets-Extra",
-            asset_prefix: "building-gadgets-extra-forge-1.20.1-",
             cleanup_patterns: &[
                 "mods/building-gadgets-extra-*.jar",
                 "mods/buildinggadgetsextra-*.jar",
@@ -371,14 +347,6 @@ fn build_tfg_patch(mods: Vec<TfgResolvedMod>) -> TfgResolvedPatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn asset(name: &str) -> GithubAsset {
-        GithubAsset {
-            name: name.into(),
-            browser_download_url: format!("https://example.invalid/{name}"),
-            digest: Some(format!("sha256:{}", "a".repeat(64))),
-        }
-    }
 
     #[test]
     fn published_release_validation_accepts_verified_https_release() {
