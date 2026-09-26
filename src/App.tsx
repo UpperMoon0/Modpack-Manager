@@ -42,6 +42,7 @@ export default function App() {
   const [appUpdateStatus, setAppUpdateStatus] = useState("");
   const [appChecking, setAppChecking] = useState(false);
   const [appChecked, setAppChecked] = useState(false);
+  const [appCheckFailed, setAppCheckFailed] = useState(false);
   const [appInstalling, setAppInstalling] = useState(false);
   const [showUpdateToast, setShowUpdateToast] = useState(false);
   const notifiedAppVersion = useRef<string | null>(null);
@@ -50,7 +51,187 @@ export default function App() {
     const subscription = listen<PatchProgress>("patch-progress", (event) => {
       setProgress(event.payload);
     });
-    return (
+    return () => {
+      void subscription.then((unlisten) => unlisten());
+    };
+  }, []);
+
+  useEffect(() => {
+    void getVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
+    void checkAppUpdater(true);
+    const interval = window.setInterval(
+      () => void checkAppUpdater(true),
+      APP_UPDATE_INTERVAL_MS
+    );
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!root) {
+      setState(null);
+      setTfg(null);
+      return;
+    }
+
+    void tfgApi.state(root).then(setState).catch(() => setState(null));
+    void refreshTfg(true);
+
+    const interval = window.setInterval(
+      () => void refreshTfg(true),
+      TFG_UPDATE_INTERVAL_MS
+    );
+    return () => window.clearInterval(interval);
+  }, [root]);
+
+  const status = useMemo(() => {
+    if (!root) return "Select TFG folder";
+    if (checkingTfg) return "Checking releases";
+    if (!tfg) return "TFG not inspected";
+    if (tfg.plan.items.length === 0) return "TFG installation current";
+    if (tfg.plan.alreadyApplied) return "TFG installation drift";
+    return "TFG update available";
+  }, [root, checkingTfg, tfg]);
+
+  async function checkAppUpdater(silent: boolean) {
+    if (!silent) {
+      setAppChecking(true);
+      setAppUpdateStatus("");
+    }
+
+    try {
+      const update = await check({ timeout: 15_000 });
+      setAppUpdate(update);
+      setAppChecked(true);
+      setAppCheckFailed(false);
+
+      if (update) {
+        if (!silent || shouldNotifyAppUpdate(update.version, notifiedAppVersion.current)) {
+          setShowUpdateToast(true);
+        }
+        notifiedAppVersion.current = update.version;
+        if (!silent) {
+          setAppUpdateStatus("Modpack Manager " + update.version + " is available.");
+        }
+      } else {
+        setShowUpdateToast(false);
+        if (!silent) {
+          setAppUpdateStatus("Modpack Manager is up to date.");
+        }
+      }
+    } catch (cause) {
+      setAppChecked(true);
+      setAppCheckFailed(true);
+      if (!silent) {
+        setAppUpdateStatus("Update check failed: " + errorMessage(cause));
+      }
+    } finally {
+      if (!silent) setAppChecking(false);
+    }
+  }
+
+  async function installAppUpdate() {
+    if (!appUpdate || appInstalling) return;
+    setAppInstalling(true);
+    setShowUpdateToast(true);
+    setAppUpdateStatus("Downloading Modpack Manager " + appUpdate.version + "…");
+
+    let downloaded = 0;
+    let total = 0;
+
+    try {
+      await appUpdate.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          total = event.data.contentLength ?? 0;
+          setAppUpdateStatus(
+            total > 0
+              ? "Downloading update: 0 / " + Math.round(total / 1024) + " KiB"
+              : "Downloading update…"
+          );
+        } else if (event.event === "Progress") {
+          downloaded += event.data.chunkLength;
+          setAppUpdateStatus(
+            total > 0
+              ? "Downloading update: " + Math.round(downloaded / 1024) + " / " + Math.round(total / 1024) + " KiB"
+              : "Downloaded " + Math.round(downloaded / 1024) + " KiB"
+          );
+        } else if (event.event === "Finished") {
+          setAppUpdateStatus("Update verified and installed. Restarting…");
+        }
+      });
+      await relaunch();
+    } catch (cause) {
+      setAppUpdateStatus("Update failed: " + errorMessage(cause));
+      setAppInstalling(false);
+    }
+  }
+
+  async function useFolder(path = folderDraft) {
+    const next = path.trim();
+    if (!next) return;
+    setFolderDraft(next);
+    setRoot(next);
+    localStorage.setItem(ROOT_KEY, next);
+    setTfg(null);
+    setResult(null);
+    setError("");
+  }
+
+  async function chooseRoot() {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Select your TFG modpack folder"
+    });
+
+    if (typeof selected === "string") {
+      await useFolder(selected);
+    }
+  }
+
+  async function refreshTfg(silent: boolean) {
+    if (!root.trim()) return;
+
+    if (!silent) setCheckingTfg(true);
+    setResult(null);
+
+    try {
+      const [next, nextState] = await Promise.all([
+        tfgApi.plan(root.trim()),
+        tfgApi.state(root.trim())
+      ]);
+      setTfg(next);
+      setState(nextState);
+      setLastPatchCheck(new Date().toLocaleTimeString());
+      setError("");
+    } catch (cause) {
+      setTfg(null);
+      if (!silent) setError(errorMessage(cause));
+    } finally {
+      if (!silent) setCheckingTfg(false);
+    }
+  }
+
+  async function apply() {
+    if (!tfg || busy) return;
+    setBusy(true);
+    setError("");
+    setResult(null);
+
+    try {
+      const applied = await tfgApi.apply(root.trim(), tfg.patchVersion);
+      setResult(applied);
+      setState(applied.state);
+      setTfg(await tfgApi.plan(root.trim()));
+      setLastPatchCheck(new Date().toLocaleTimeString());
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  }
+
+  return (
     <main className="shell">
       {appUpdate && showUpdateToast && (
         <aside className="updateToast" role="status" aria-live="polite">
@@ -149,9 +330,11 @@ export default function App() {
               <strong>
                 {!appChecked || appChecking
                   ? "Checking…"
-                  : appUpdate
-                    ? appUpdate.version + " available"
-                    : "Up to date"}
+                  : appCheckFailed
+                    ? "Check unavailable"
+                    : appUpdate
+                      ? appUpdate.version + " available"
+                      : "Up to date"}
               </strong>
             </div>
           </div>
