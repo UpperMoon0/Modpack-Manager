@@ -52,6 +52,8 @@ jobs:
       - run: npm run build
       - run: cargo test -p patch-core -p modpackctl
       - run: cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
+      - name: Resolve promoted TFG fork profile
+        run: scripts/check-tfg-promotion.sh "$RUNNER_TEMP/tfg-release-smoke"
       - run: node --check scripts/prepare-release.mjs
       - run: node --check scripts/prepare-windows-signing.mjs
 
