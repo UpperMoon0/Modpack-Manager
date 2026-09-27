@@ -64,7 +64,11 @@ pub enum Operation {
     ExtractZip {
         artifact: String,
         destination: String,
-        #[serde(default = "default_true")]
+        #[serde(
+            default = "default_true",
+            rename = "cleanDestination",
+            alias = "clean_destination"
+        )]
         clean_destination: bool,
         #[serde(default)]
         targets: Vec<Target>,
@@ -78,7 +82,7 @@ pub enum Operation {
     PatchToml {
         destination: String,
         values: BTreeMap<String, JsonValue>,
-        #[serde(default)]
+        #[serde(default, rename = "skipIfMissing", alias = "skip_if_missing")]
         skip_if_missing: bool,
         #[serde(default)]
         targets: Vec<Target>,
@@ -86,7 +90,17 @@ pub enum Operation {
     PatchYaml {
         destination: String,
         values: BTreeMap<String, JsonValue>,
+        #[serde(default, rename = "skipIfMissing", alias = "skip_if_missing")]
+        skip_if_missing: bool,
         #[serde(default)]
+        targets: Vec<Target>,
+    },
+    PatchSnbt {
+        destination: String,
+        values: BTreeMap<String, JsonValue>,
+        #[serde(default, rename = "replaceAll", alias = "replace_all")]
+        replace_all: bool,
+        #[serde(default, rename = "skipIfMissing", alias = "skip_if_missing")]
         skip_if_missing: bool,
         #[serde(default)]
         targets: Vec<Target>,
@@ -105,7 +119,8 @@ impl Operation {
             | Self::ExtractZip { targets, .. }
             | Self::WriteText { targets, .. }
             | Self::PatchToml { targets, .. }
-            | Self::PatchYaml { targets, .. } => targets,
+            | Self::PatchYaml { targets, .. }
+            | Self::PatchSnbt { targets, .. } => targets,
         }
     }
 
@@ -218,6 +233,21 @@ pub fn validate_manifest(manifest: &PatchManifest) -> Result<()> {
                         .with_context(|| format!("invalid patchYaml value for {key:?}"))?;
                 }
             }
+            Operation::PatchSnbt {
+                destination,
+                values,
+                ..
+            } => {
+                validate_file_destination(destination, "patchSnbt")?;
+                if values.is_empty() {
+                    bail!("patchSnbt values cannot be empty");
+                }
+                for (key, value) in values {
+                    validate_snbt_key(key)?;
+                    validate_snbt_value(value)
+                        .with_context(|| format!("invalid patchSnbt value for {key:?}"))?;
+                }
+            }
         }
     }
 
@@ -319,6 +349,17 @@ fn validate_yaml_value(value: &JsonValue) -> Result<()> {
     match value {
         JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => Ok(()),
         _ => bail!("patchYaml supports only boolean, numeric, and string scalar values"),
+    }
+}
+
+fn validate_snbt_key(value: &str) -> Result<()> {
+    validate_toml_key(value).context("invalid SNBT key")
+}
+
+fn validate_snbt_value(value: &JsonValue) -> Result<()> {
+    match value {
+        JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => Ok(()),
+        _ => bail!("patchSnbt supports only boolean, numeric, and string scalar values"),
     }
 }
 

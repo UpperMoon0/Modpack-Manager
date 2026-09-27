@@ -233,6 +233,29 @@ pub fn plan_manifest(manifest: &PatchManifest, root: &Path, target: Target) -> R
                     detail: format!("Update {} managed YAML values", values.len()),
                 });
             }
+            Operation::PatchSnbt {
+                destination,
+                values,
+                replace_all,
+                skip_if_missing,
+                ..
+            } => {
+                let relative = resolve_runtime_destination(root, destination)?;
+                let path = root.join(&relative);
+                ensure_no_symlink_components(root, &relative)?;
+                if *skip_if_missing && !path.exists() {
+                    continue;
+                }
+                if !snbt_patch_needed(&path, values, *replace_all)? {
+                    continue;
+                }
+
+                items.push(PlanItem {
+                    kind: "patchSnbt".into(),
+                    path: relative.to_string_lossy().replace('\\', "/"),
+                    detail: format!("Update {} managed SNBT values", values.len()),
+                });
+            }
         }
     }
 
@@ -468,6 +491,26 @@ pub async fn apply_manifest(
 
                     transaction.backup_once(&relative, &progress)?;
                     patch_yaml_file(&destination, values)?;
+                }
+                Operation::PatchSnbt {
+                    destination,
+                    values,
+                    replace_all,
+                    skip_if_missing,
+                    ..
+                } => {
+                    let relative = resolve_runtime_destination(root, destination)?;
+                    ensure_no_symlink_components(root, &relative)?;
+                    let destination = root.join(&relative);
+                    if *skip_if_missing && !destination.exists() {
+                        continue;
+                    }
+                    if !snbt_patch_needed(&destination, values, *replace_all)? {
+                        continue;
+                    }
+
+                    transaction.backup_once(&relative, &progress)?;
+                    patch_snbt_file(&destination, values, *replace_all)?;
                 }
             }
 
@@ -898,6 +941,7 @@ fn operation_message(operation: &Operation) -> String {
         Operation::WriteText { destination, .. } => format!("Writing {destination}"),
         Operation::PatchToml { destination, .. } => format!("Patching TOML {destination}"),
         Operation::PatchYaml { destination, .. } => format!("Patching YAML {destination}"),
+        Operation::PatchSnbt { destination, .. } => format!("Patching SNBT {destination}"),
     }
 }
 
@@ -1056,6 +1100,151 @@ fn render_yaml_scalar(value: &serde_json::Value) -> Result<String> {
             serde_json::to_string(value).context("failed to serialize YAML string scalar")
         }
         _ => bail!("patchYaml supports only scalar boolean, numeric, and string values"),
+    }
+}
+
+fn resolve_runtime_destination(root: &Path, destination: &str) -> Result<PathBuf> {
+    let rendered = if destination.contains("{levelName}") {
+        let level_name = read_level_name(root)?;
+        destination.replace("{levelName}", &level_name)
+    } else {
+        destination.to_owned()
+    };
+
+    let relative = PathBuf::from(&rendered);
+    for component in relative.components() {
+        match component {
+            std::path::Component::Normal(_) | std::path::Component::CurDir => {}
+            _ => bail!("runtime destination {rendered:?} escapes the modpack root"),
+        }
+    }
+    if relative
+        .components()
+        .next()
+        .and_then(|component| match component {
+            std::path::Component::Normal(part) => part.to_str(),
+            _ => None,
+        })
+        .is_some_and(|part| part.eq_ignore_ascii_case(".modpack-manager"))
+    {
+        bail!("runtime destination cannot target .modpack-manager");
+    }
+    Ok(relative)
+}
+
+fn read_level_name(root: &Path) -> Result<String> {
+    let properties = root.join("server.properties");
+    if !properties.exists() {
+        return Ok("world".into());
+    }
+
+    let source = fs::read_to_string(&properties)
+        .with_context(|| format!("failed to read {}", properties.display()))?;
+    for raw_line in source.lines() {
+        let line = raw_line.trim();
+        if let Some(value) = line.strip_prefix("level-name=") {
+            let value = value.trim();
+            return Ok(if value.is_empty() { "world" } else { value }.to_owned());
+        }
+    }
+    Ok("world".into())
+}
+
+fn snbt_patch_needed(
+    path: &Path,
+    values: &BTreeMap<String, serde_json::Value>,
+    replace_all: bool,
+) -> Result<bool> {
+    if !path.exists() {
+        bail!("SNBT file {} does not exist", path.display());
+    }
+    let source = fs::read_to_string(path)
+        .with_context(|| format!("failed to read SNBT {}", path.display()))?;
+    Ok(render_patched_snbt(&source, values, replace_all)? != source)
+}
+
+fn patch_snbt_file(
+    path: &Path,
+    values: &BTreeMap<String, serde_json::Value>,
+    replace_all: bool,
+) -> Result<()> {
+    if !path.exists() {
+        bail!("SNBT file {} does not exist", path.display());
+    }
+    let source = fs::read_to_string(path)
+        .with_context(|| format!("failed to read SNBT {}", path.display()))?;
+    let rendered = render_patched_snbt(&source, values, replace_all)?;
+    fs::write(path, rendered)
+        .with_context(|| format!("failed to write SNBT {}", path.display()))
+}
+
+fn render_patched_snbt(
+    source: &str,
+    values: &BTreeMap<String, serde_json::Value>,
+    replace_all: bool,
+) -> Result<String> {
+    let line_ending = if source.contains("\r\n") { "\r\n" } else { "\n" };
+    let had_trailing_newline = source.ends_with('\n');
+    let mut lines: Vec<String> = source.lines().map(str::to_owned).collect();
+
+    for (key, value) in values {
+        let rendered_value = render_snbt_scalar(value)?;
+        let mut matches = Vec::new();
+
+        for (index, line) in lines.iter().enumerate() {
+            let content = line.trim_start_matches([' ', '\t']);
+            if content.is_empty() || content.starts_with('#') {
+                continue;
+            }
+            let Some((raw_key, _)) = content.split_once(':') else {
+                continue;
+            };
+            if raw_key.trim() == key {
+                matches.push(index);
+            }
+        }
+
+        if matches.is_empty() {
+            bail!("SNBT key {key:?} was not found");
+        }
+        if !replace_all && matches.len() != 1 {
+            bail!("SNBT key {key:?} is ambiguous");
+        }
+
+        if !replace_all {
+            matches.truncate(1);
+        }
+        for index in matches {
+            let line = &lines[index];
+            let colon = line
+                .find(':')
+                .context("matched SNBT mapping unexpectedly has no colon")?;
+            let remainder = &line[colon + 1..];
+            let inline_comment = yaml_inline_comment(remainder);
+            let mut replacement = format!("{}: {}", &line[..colon], rendered_value);
+            if let Some(comment) = inline_comment {
+                replacement.push(' ');
+                replacement.push_str(comment);
+            }
+            lines[index] = replacement;
+        }
+    }
+
+    let mut rendered = lines.join(line_ending);
+    if had_trailing_newline {
+        rendered.push_str(line_ending);
+    }
+    Ok(rendered)
+}
+
+fn render_snbt_scalar(value: &serde_json::Value) -> Result<String> {
+    match value {
+        serde_json::Value::Bool(value) => Ok(value.to_string()),
+        serde_json::Value::Number(value) => Ok(value.to_string()),
+        serde_json::Value::String(value) => {
+            serde_json::to_string(value).context("failed to serialize SNBT string scalar")
+        }
+        _ => bail!("patchSnbt supports only scalar boolean, numeric, and string values"),
     }
 }
 
