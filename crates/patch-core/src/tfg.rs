@@ -4,8 +4,8 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-const TFG_FORK_RELEASE: &str = "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/refs/heads/nstut/stable/nstut/release.json";
-const TFG_FORK_RAW_ROOT: &str = "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern";
+const TFG_FORK_RELEASE: &str = "https://raw.githubusercontent.com/UpperMoon0/TFG-Modern-Fork/refs/heads/nstut/stable/nstut/release.json";
+const TFG_FORK_RAW_ROOT: &str = "https://raw.githubusercontent.com/UpperMoon0/TFG-Modern-Fork";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -289,15 +289,15 @@ mod tests {
         let (release, manifest, managed) = fork_tag_sources("nstut-0.13.10.2").unwrap();
         assert_eq!(
             release,
-            "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/refs/tags/nstut-0.13.10.2/nstut/release.json"
+            "https://raw.githubusercontent.com/UpperMoon0/TFG-Modern-Fork/refs/tags/nstut-0.13.10.2/nstut/release.json"
         );
         assert_eq!(
             manifest,
-            "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/refs/tags/nstut-0.13.10.2/nstut/modpack-manager.patch.json"
+            "https://raw.githubusercontent.com/UpperMoon0/TFG-Modern-Fork/refs/tags/nstut-0.13.10.2/nstut/modpack-manager.patch.json"
         );
         assert_eq!(
             managed,
-            "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/refs/tags/nstut-0.13.10.2/nstut/managed-mods.json"
+            "https://raw.githubusercontent.com/UpperMoon0/TFG-Modern-Fork/refs/tags/nstut-0.13.10.2/nstut/managed-mods.json"
         );
         assert!(fork_tag_sources("../main").is_err());
         assert!(fork_tag_sources("refs/heads/main").is_err());

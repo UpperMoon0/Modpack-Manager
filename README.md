@@ -4,7 +4,7 @@ A Tauri + React + Rust updater for maintaining the NsTut TFG Forge 1.20.1 client
 
 ## TFG managed profile
 
-The desktop client asks only for the TFG modpack folder. TFG policy is authored in the UpperMoon0/Modpack-Modern fork. Modpack Manager reads the nstut/stable release pointer, cross-checks it against release.json stored in the immutable tag, then consumes that tag's generated manifest and managed-mod metadata.
+The desktop client asks only for the TFG modpack folder. TFG policy is authored in the UpperMoon0/TFG-Modern-Fork fork. Modpack Manager reads the nstut/stable release pointer, cross-checks it against release.json stored in the immutable tag, then consumes that tag's generated manifest and managed-mod metadata.
 
 Managed mods:
 
