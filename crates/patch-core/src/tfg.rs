@@ -122,7 +122,7 @@ fn fork_tag_sources(source_ref: &str) -> Result<(String, String)> {
         bail!("NsTut TFG sourceRef contains unsafe characters");
     }
 
-    let base = format!("{TFG_FORK_RAW_ROOT}/{source_ref}/nstut");
+    let base = format!("{TFG_FORK_RAW_ROOT}/refs/tags/{source_ref}/nstut");
     Ok((
         format!("{base}/modpack-manager.patch.json"),
         format!("{base}/managed-mods.json"),
@@ -243,11 +243,11 @@ mod tests {
         let (manifest, managed) = fork_tag_sources("nstut-0.13.10.2").unwrap();
         assert_eq!(
             manifest,
-            "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/nstut-0.13.10.2/nstut/modpack-manager.patch.json"
+            "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/refs/tags/nstut-0.13.10.2/nstut/modpack-manager.patch.json"
         );
         assert_eq!(
             managed,
-            "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/nstut-0.13.10.2/nstut/managed-mods.json"
+            "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/refs/tags/nstut-0.13.10.2/nstut/managed-mods.json"
         );
         assert!(fork_tag_sources("../main").is_err());
         assert!(fork_tag_sources("refs/heads/main").is_err());
