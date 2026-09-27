@@ -26,10 +26,12 @@ pub struct TfgResolvedPatch {
     pub mods: Vec<TfgResolvedMod>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ForkRelease {
     schema_version: u32,
+    base_ref: String,
+    branch: String,
     overlay_version: String,
     source_ref: String,
 }
@@ -62,14 +64,18 @@ pub async fn resolve_tfg_patch() -> Result<TfgResolvedPatch> {
         .context("failed to load the NsTut TFG stable release pointer")?;
     let release: ForkRelease = serde_json::from_str(&release_body)
         .context("NsTut TFG stable release pointer is invalid JSON")?;
-    if release.schema_version != 1 {
-        bail!(
-            "unsupported NsTut TFG release-pointer schema {}; expected 1",
-            release.schema_version
-        );
-    }
-    let (default_manifest_source, default_managed_mods_source) =
+    validate_release_metadata(&release, "stable release pointer")?;
+    let (default_tag_release_source, default_manifest_source, default_managed_mods_source) =
         fork_tag_sources(&release.source_ref)?;
+    let tag_release_source = std::env::var("MODPACK_MANAGER_TFG_TAG_RELEASE")
+        .unwrap_or(default_tag_release_source);
+    let tag_release_body = load_text(&tag_release_source)
+        .await
+        .context("failed to load the immutable NsTut TFG release metadata")?;
+    let tag_release: ForkRelease = serde_json::from_str(&tag_release_body)
+        .context("immutable NsTut TFG release metadata is invalid JSON")?;
+    validate_release_pair(&release, &tag_release)?;
+
     let manifest_source = std::env::var("MODPACK_MANAGER_TFG_MANIFEST")
         .unwrap_or(default_manifest_source);
     let managed_mods_source = std::env::var("MODPACK_MANAGER_TFG_MANAGED_MODS")
@@ -113,7 +119,36 @@ pub async fn resolve_tfg_patch() -> Result<TfgResolvedPatch> {
     Ok(TfgResolvedPatch { manifest, mods })
 }
 
-fn fork_tag_sources(source_ref: &str) -> Result<(String, String)> {
+fn validate_release_metadata(release: &ForkRelease, label: &str) -> Result<()> {
+    if release.schema_version != 1 {
+        bail!(
+            "unsupported NsTut TFG {label} schema {}; expected 1",
+            release.schema_version
+        );
+    }
+    if release.base_ref.trim().is_empty()
+        || release.branch.trim().is_empty()
+        || release.overlay_version.trim().is_empty()
+    {
+        bail!("NsTut TFG {label} is missing required release metadata");
+    }
+    fork_tag_sources(&release.source_ref)?;
+    Ok(())
+}
+
+fn validate_release_pair(pointer: &ForkRelease, immutable: &ForkRelease) -> Result<()> {
+    validate_release_metadata(pointer, "stable release pointer")?;
+    validate_release_metadata(immutable, "immutable tag release metadata")?;
+    if pointer != immutable {
+        bail!(
+            "NsTut TFG stable pointer does not match immutable release metadata from {}",
+            pointer.source_ref
+        );
+    }
+    Ok(())
+}
+
+fn fork_tag_sources(source_ref: &str) -> Result<(String, String, String)> {
     if !source_ref.starts_with("nstut-")
         || !source_ref.chars().all(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
@@ -124,6 +159,7 @@ fn fork_tag_sources(source_ref: &str) -> Result<(String, String)> {
 
     let base = format!("{TFG_FORK_RAW_ROOT}/refs/tags/{source_ref}/nstut");
     Ok((
+        format!("{base}/release.json"),
         format!("{base}/modpack-manager.patch.json"),
         format!("{base}/managed-mods.json"),
     ))
@@ -225,6 +261,16 @@ mod tests {
         }
     }
 
+    fn fixture_release() -> ForkRelease {
+        ForkRelease {
+            schema_version: 1,
+            base_ref: "0.13.10".into(),
+            branch: "nstut/0.13.10".into(),
+            overlay_version: "0.13.10-nstut.2".into(),
+            source_ref: "nstut-0.13.10.2".into(),
+        }
+    }
+
     fn fixture_mod() -> ManagedMod {
         ManagedMod {
             id: "economy".into(),
@@ -240,7 +286,11 @@ mod tests {
 
     #[test]
     fn fork_tag_sources_reject_unsafe_refs_and_build_immutable_urls() {
-        let (manifest, managed) = fork_tag_sources("nstut-0.13.10.2").unwrap();
+        let (release, manifest, managed) = fork_tag_sources("nstut-0.13.10.2").unwrap();
+        assert_eq!(
+            release,
+            "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/refs/tags/nstut-0.13.10.2/nstut/release.json"
+        );
         assert_eq!(
             manifest,
             "https://raw.githubusercontent.com/UpperMoon0/Modpack-Modern/refs/tags/nstut-0.13.10.2/nstut/modpack-manager.patch.json"
@@ -253,6 +303,24 @@ mod tests {
         assert!(fork_tag_sources("refs/heads/main").is_err());
         assert!(fork_tag_sources("..").is_err());
         assert!(fork_tag_sources("0.13.10").is_err());
+    }
+
+    #[test]
+    fn release_pair_requires_exact_immutable_metadata_match() {
+        let pointer = fixture_release();
+        validate_release_pair(&pointer, &pointer).unwrap();
+
+        let mut drifted = pointer.clone();
+        drifted.overlay_version = "0.13.10-nstut.3".into();
+        let error = validate_release_pair(&pointer, &drifted).unwrap_err();
+        assert!(error.to_string().contains("does not match immutable"));
+    }
+
+    #[test]
+    fn release_metadata_rejects_missing_fields() {
+        let mut release = fixture_release();
+        release.branch.clear();
+        assert!(validate_release_metadata(&release, "test release").is_err());
     }
 
     #[test]
