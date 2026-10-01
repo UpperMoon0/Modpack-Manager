@@ -66,6 +66,45 @@ fn scalar(value: &Value) -> Result<String> {
     }
 }
 
+fn natural_lines(source: &[u8]) -> Vec<&[u8]> {
+    let mut lines = Vec::new();
+    let mut start = 0;
+    let mut index = 0;
+    while index < source.len() {
+        match source[index] {
+            b'\r' => {
+                index += 1;
+                if source.get(index) == Some(&b'\n') {
+                    index += 1;
+                }
+            }
+            b'\n' => index += 1,
+            _ => {
+                index += 1;
+                continue;
+            }
+        }
+        lines.push(&source[start..index]);
+        start = index;
+    }
+    if start < source.len() {
+        lines.push(&source[start..]);
+    }
+    lines
+}
+
+fn line_ending(line: &[u8]) -> &[u8] {
+    if line.ends_with(b"\r\n") {
+        b"\r\n"
+    } else if line.ends_with(b"\r") {
+        b"\r"
+    } else if line.ends_with(b"\n") {
+        b"\n"
+    } else {
+        b""
+    }
+}
+
 /// Preserve unowned properties byte for byte, including comments and continuation lines.
 pub(crate) fn render_patched_properties(
     source: &[u8],
@@ -73,12 +112,14 @@ pub(crate) fn render_patched_properties(
 ) -> Result<Vec<u8>> {
     let newline: &[u8] = if source.windows(2).any(|pair| pair == b"\r\n") {
         b"\r\n"
+    } else if source.contains(&b'\r') {
+        b"\r"
     } else {
         b"\n"
     };
     let mut output = Vec::new();
     let mut seen = HashSet::new();
-    let lines: Vec<_> = source.split_inclusive(|byte| *byte == b'\n').collect();
+    let lines = natural_lines(source);
     let mut index = 0;
     while index < lines.len() {
         let start = index;
@@ -86,13 +127,7 @@ pub(crate) fn render_patched_properties(
         let mut ending: &[u8];
         loop {
             let physical = lines[index];
-            ending = if physical.ends_with(b"\r\n") {
-                b"\r\n"
-            } else if physical.ends_with(b"\n") {
-                b"\n"
-            } else {
-                b""
-            };
+            ending = line_ending(physical);
             let mut body = &physical[..physical.len() - ending.len()];
             body = body.trim_ascii_start();
             let comment =
@@ -131,8 +166,18 @@ pub(crate) fn render_patched_properties(
         if seen.contains(key) {
             continue;
         }
-        if !output.is_empty() && !output.ends_with(b"\n") {
-            output.extend_from_slice(newline);
+        if let Some(last) = natural_lines(&output).last() {
+            let ending = line_ending(last);
+            let body = &last[..last.len() - ending.len()];
+            let continued = body.iter().rev().take_while(|byte| **byte == b'\\').count() % 2 == 1;
+            if ending.is_empty() {
+                output.extend_from_slice(newline);
+            }
+            // An empty natural line closes any unfinished continuation without
+            // changing the preceding property's value as read at EOF by Java.
+            if continued {
+                output.extend_from_slice(newline);
+            }
         }
         output.extend_from_slice(
             format!("{key}={}{}", scalar(value)?, std::str::from_utf8(newline)?).as_bytes(),

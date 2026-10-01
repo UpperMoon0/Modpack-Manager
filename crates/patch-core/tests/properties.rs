@@ -61,6 +61,62 @@ async fn properties_creation_and_skip_if_missing_are_explicit() {
 }
 
 #[tokio::test]
+async fn preserves_cr_only_and_mixed_natural_line_endings() {
+    for original in [
+        "online-mode=true\rlevel-name=custom-world\rserver-port=25570\r",
+        "online-mode=true\nlevel-name=custom-world\rserver-port=25570\r\n",
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("server.properties");
+        fs::write(&path, original).unwrap();
+        apply(&manifest(), &root).await.unwrap();
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            original
+                .replace("online-mode=true", "online-mode=false")
+                .as_bytes()
+        );
+        assert!(plan_manifest(&manifest(), root.path(), Target::Server)
+            .unwrap()
+            .items
+            .is_empty());
+        assert_eq!(apply(&manifest(), &root).await.unwrap().changed_paths, 0);
+    }
+}
+
+#[tokio::test]
+async fn safely_appends_after_eof_continuations_for_all_java_line_endings() {
+    for ending in ["", "\n", "\r", "\r\n"] {
+        for backslashes in 0..=4 {
+            let root = tempfile::tempdir().unwrap();
+            let path = root.path().join("server.properties");
+            let source = format!("motd=Hello{}{ending}", "\\".repeat(backslashes));
+            fs::write(&path, &source).unwrap();
+            let newline = if ending.is_empty() { "\n" } else { ending };
+            let mut expected = source.clone();
+            if ending.is_empty() {
+                expected.push_str(newline);
+            }
+            if backslashes % 2 == 1 {
+                expected.push_str(newline);
+            }
+            expected.push_str(&format!("online-mode=false{newline}"));
+            apply(&manifest(), &root).await.unwrap();
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                expected.as_bytes(),
+                "ending={ending:?}, backslashes={backslashes}"
+            );
+            assert!(plan_manifest(&manifest(), root.path(), Target::Server)
+                .unwrap()
+                .items
+                .is_empty());
+            assert_eq!(apply(&manifest(), &root).await.unwrap().changed_paths, 0);
+        }
+    }
+}
+
+#[tokio::test]
 async fn restores_properties_when_a_later_operation_fails() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("server.properties");
