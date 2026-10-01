@@ -118,4 +118,55 @@ Safety guarantees include:
 - no-op skipping so already-correct managed files are not rewritten;
 - separate client and server patch state.
 
-## Modpack Manager self-upd{ß›h‘éì¶»§q«^uÉÌ°¡•­ÍÕµÌ°…¹Ñ¡”Í•ÉÙ•È1$¡…Ù”ÕÁ±½…‘•ÍÕ•ÍÍ™Õ±±ä¸((ŒŒI•Á½Í¥Ñ½Éä±…å½ÕĞ((€€€É…Ñ•Ì½Á…Ñ µ½É”¼€€Á¥¹¹•Q™½É¬µµ…¹¥™•ÍĞÉ•Í½±Ù•È€¬•¹•É¥ŒÁ…Ñ ½¡…¹¹•°½‰…­ÕÀ½É½±±‰…¬•¹¥¹”(€€€É…Ñ•Ì½µ½‘Á…­Ñ°¼€€Í•ÉÙ•È½¡•…‘±•ÍÌ1$(€€€ÍÉŒ¼€€€€€€€€€€€€€€€€I•…Ğ€¬QåÁ•MÉ¥ÁĞQU$…¹…ÁÀÕÁ‘…Ñ•È(€€€ÍÉŒµÑ…ÕÉ¤¼€€€€€€€€€€Q…ÕÉ¤½µµ…¹‘Ì…¹ÕÁ‘…Ñ•ÈÁ±Õ¥¹Ì(€€€ÍÉ¥ÁÑÌ¼€€€€€€€€€€€€Í•ÉÙ•ÈİÉ…ÁÁ•È€¬É•±•…Í”¡•±Á•ÉÌ(€€€•á…µÁ±•Ì¼€€€€€€€€€€€•¹•É¥Œ¡…¹¹•°½µ…¹¥™•ÍĞ•á…µÁ±•Ì
+## Modpack Manager self-update
+
+The app uses the Tauri updater against:
+
+    https://github.com/UpperMoon0/Modpack-Manager/releases/latest/download/latest.json
+
+It checks on launch and every six hours. Application updates are presented in a global app-update area, separate from the selected TFG installation. When a newer signed release is detected, an in-app notification offers a one-click install-and-restart action. Silent automatic checks degrade quietly on transient network failures; manual checks report errors in the application panel.
+
+Updater releases are signed. Release CI requires:
+
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+The public verification key is embedded in `src-tauri/tauri.conf.json`; the private key is never committed.
+
+Windows Authenticode signing is optional and independent from updater signing. When both `WINDOWS_CERTIFICATE` and `WINDOWS_CERTIFICATE_PASSWORD` are configured, release CI validates the trusted Code Signing certificate and verifies the generated EXE/MSI signatures before publication. Without those secrets, Windows installers are published without Authenticode while Tauri updater signing remains mandatory. SHA-256 checksums are published in either case. See [CODE_SIGNING.md](CODE_SIGNING.md).
+
+## Development
+
+Frontend:
+
+    npm install
+    npm test
+    npm run test:release
+    npm run build
+
+Rust:
+
+    cargo test -p patch-core -p modpackctl
+    cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
+
+Native Windows app:
+
+    npm run tauri build -- --debug
+
+Native Linux app (Ubuntu 22.04/Debian 12 or newer, with Rust and Node.js installed):
+
+    sudo apt-get update
+    sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+      libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+    npm run tauri:linux -- --debug
+
+Linux bundle targets are configured in `src-tauri/tauri.linux.conf.json`. CI builds real Windows installers plus Linux AppImage and Debian packages, and uploads Linux debug installers for PR testing. Release CI signs the AppImage updater with the same key used on Windows, verifies both platforms are present in `latest.json`, and publishes only after all installers, checksums, and the server CLI have uploaded successfully.
+
+## Repository layout
+
+    crates/patch-core/   pinned TFG fork-manifest resolver + generic patch/channel/backup/rollback engine
+    crates/modpackctl/   server/headless CLI
+    src/                 React + TypeScript TFG UI and app updater
+    src-tauri/           Tauri commands and updater plugins
+    scripts/             server wrapper + release helpers
+    examples/            generic channel/manifest examples
