@@ -619,11 +619,9 @@ async fn prepare_artifact(
     manifest_source: &str,
     cache_dir: &Path,
 ) -> Result<PathBuf> {
-    let file_name = artifact
-        .file_name
-        .clone()
-        .unwrap_or_else(|| safe_segment(&artifact.id));
-    let destination = cache_dir.join(file_name);
+    // Fork overlays contain different scripts with the same basename. Cache by
+    // verified content, so all artifact handles retain their own payload.
+    let destination = cache_dir.join(artifact.sha256.to_ascii_lowercase());
 
     if destination.exists() && verify_sha256(&destination, &artifact.sha256)? {
         return Ok(destination);
