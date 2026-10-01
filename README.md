@@ -18,6 +18,10 @@ Managed mods:
 | Create Horse Power - CE | GitHub ? UpperMoon0/CreateHorsePower-CE | yes | yes |
 | Building Gadgets Extra | GitHub ? UpperMoon0/Building-Gadgets-Extra | yes | yes |
 | Create: Extra Gauges | Modrinth ? extra-gauges | yes | yes |
+| Perfomant Boom | GitHub → UpperMoon0/Perfomant-Boom | yes | yes |
+| Celestial Nail | GitHub → UpperMoon0/Celestial-Nail | yes | yes |
+| Perfomant Boom | GitHub ? UpperMoon0/Perfomant-Boom | yes | yes |
+| Celestial Nail | GitHub ? UpperMoon0/Celestial-Nail | yes | yes |
 
 Managed mod versions and exact Forge 1.20.1 artifact hashes are pinned in the TFG fork. Updating a managed mod is an explicit fork commit, so upstream-pack merges and mod-version changes are reviewed together instead of being resolved implicitly at runtime.
 
@@ -91,6 +95,8 @@ The normal server wrapper prints the same live diff immediately before applying 
 
 `PATCH_CHANNEL` and `PATCH_MANIFEST` remain available as generic overrides for other patch sets.
 
+The candidate TFG overlay updates outdated custom mods to their newest compatible stable Forge 1.20.1 releases. It sets `online-mode=false` on servers through a property patch that preserves other server settings, and sets Simply Speakers `maxUploadSize=104857600` (100 MiB) on clients and servers. These pack policies take effect after the companion TFG fork release is reviewed, tagged, and promoted to `nstut/stable`.
+
 ## Generic patch engine
 
 The shared Rust `patch-core` still supports declarative manifests and stable remote channels.
@@ -101,6 +107,7 @@ Supported operations:
 - `installFile`
 - `extractZip`
 - `writeText`
+- `patchProperties`
 - `patchToml`
 - `patchYaml`
 - `patchSnbt`

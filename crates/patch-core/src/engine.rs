@@ -212,6 +212,26 @@ pub fn plan_manifest(manifest: &PatchManifest, root: &Path, target: Target) -> R
                     detail: format!("Update {} managed TOML values", values.len()),
                 });
             }
+            Operation::PatchProperties {
+                destination,
+                values,
+                skip_if_missing,
+                ..
+            } => {
+                let path = root.join(destination);
+                ensure_no_symlink_components(root, Path::new(destination))?;
+                if *skip_if_missing && !path.exists() {
+                    continue;
+                }
+                if !properties_patch_needed(&path, values)? {
+                    continue;
+                }
+                items.push(PlanItem {
+                    kind: "patchProperties".into(),
+                    path: destination.clone(),
+                    detail: format!("Update {} managed server properties", values.len()),
+                });
+            }
             Operation::PatchYaml {
                 destination,
                 values,
@@ -472,6 +492,27 @@ pub async fn apply_manifest(
                         fs::create_dir_all(parent)?;
                     }
                     patch_toml_file(&destination, values)?;
+                }
+                Operation::PatchProperties {
+                    destination,
+                    values,
+                    skip_if_missing,
+                    ..
+                } => {
+                    let relative = PathBuf::from(destination);
+                    ensure_no_symlink_components(root, &relative)?;
+                    let destination = root.join(&relative);
+                    if *skip_if_missing && !destination.exists() {
+                        continue;
+                    }
+                    if !properties_patch_needed(&destination, values)? {
+                        continue;
+                    }
+                    transaction.backup_once(&relative, &progress)?;
+                    if let Some(parent) = destination.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    fs::write(&destination, render_properties_file(&destination, values)?)?;
                 }
                 Operation::PatchYaml {
                     destination,
@@ -940,6 +981,7 @@ fn operation_message(operation: &Operation) -> String {
         Operation::ExtractZip { destination, .. } => format!("Updating {destination}"),
         Operation::WriteText { destination, .. } => format!("Writing {destination}"),
         Operation::PatchToml { destination, .. } => format!("Patching TOML {destination}"),
+        Operation::PatchProperties { destination, .. } => format!("Patching properties {destination}"),
         Operation::PatchYaml { destination, .. } => format!("Patching YAML {destination}"),
         Operation::PatchSnbt { destination, .. } => format!("Patching SNBT {destination}"),
     }
@@ -1464,4 +1506,29 @@ impl Transaction {
 
         Ok(())
     }
+}
+
+fn render_properties_file(
+    path: &Path,
+    values: &BTreeMap<String, serde_json::Value>,
+) -> Result<Vec<u8>> {
+    let source = if path.exists() {
+        fs::read(path)?
+    } else {
+        Vec::new()
+    };
+    crate::properties::render_patched_properties(&source, values)
+        .with_context(|| format!("failed to patch properties {}", path.display()))
+}
+
+fn properties_patch_needed(
+    path: &Path,
+    values: &BTreeMap<String, serde_json::Value>,
+) -> Result<bool> {
+    let source = if path.exists() {
+        fs::read(path)?
+    } else {
+        Vec::new()
+    };
+    Ok(crate::properties::render_patched_properties(&source, values)? != source)
 }

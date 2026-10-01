@@ -1,5 +1,6 @@
 mod channel;
 mod engine;
+mod properties;
 mod schema;
 mod source;
 mod tfg;
