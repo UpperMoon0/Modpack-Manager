@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:linux": "tauri build --config src-tauri/tauri.linux.conf.json",
+    "test:release": "node --test scripts/verify-desktop-release.check.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",

@@ -87,6 +87,14 @@ pub enum Operation {
         #[serde(default)]
         targets: Vec<Target>,
     },
+    PatchProperties {
+        destination: String,
+        values: BTreeMap<String, JsonValue>,
+        #[serde(default, rename = "skipIfMissing", alias = "skip_if_missing")]
+        skip_if_missing: bool,
+        #[serde(default)]
+        targets: Vec<Target>,
+    },
     PatchYaml {
         destination: String,
         values: BTreeMap<String, JsonValue>,
@@ -119,6 +127,7 @@ impl Operation {
             | Self::ExtractZip { targets, .. }
             | Self::WriteText { targets, .. }
             | Self::PatchToml { targets, .. }
+            | Self::PatchProperties { targets, .. }
             | Self::PatchYaml { targets, .. }
             | Self::PatchSnbt { targets, .. } => targets,
         }
@@ -216,6 +225,21 @@ pub fn validate_manifest(manifest: &PatchManifest) -> Result<()> {
                     validate_toml_key(key)?;
                     validate_toml_value(value)
                         .with_context(|| format!("invalid patchToml value for {key:?}"))?;
+                }
+            }
+            Operation::PatchProperties {
+                destination,
+                values,
+                ..
+            } => {
+                validate_file_destination(destination, "patchProperties")?;
+                if values.is_empty() {
+                    bail!("patchProperties values cannot be empty");
+                }
+                for (key, value) in values {
+                    validate_identifier(key).context("invalid properties key")?;
+                    validate_toml_value(value)
+                        .with_context(|| format!("invalid patchProperties value for {key:?}"))?;
                 }
             }
             Operation::PatchYaml {

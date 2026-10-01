@@ -18,6 +18,10 @@ Managed mods:
 | Create Horse Power - CE | GitHub ? UpperMoon0/CreateHorsePower-CE | yes | yes |
 | Building Gadgets Extra | GitHub ? UpperMoon0/Building-Gadgets-Extra | yes | yes |
 | Create: Extra Gauges | Modrinth ? extra-gauges | yes | yes |
+| Perfomant Boom | GitHub → UpperMoon0/Perfomant-Boom | yes | yes |
+| Celestial Nail | GitHub → UpperMoon0/Celestial-Nail | yes | yes |
+| Perfomant Boom | GitHub ? UpperMoon0/Perfomant-Boom | yes | yes |
+| Celestial Nail | GitHub ? UpperMoon0/Celestial-Nail | yes | yes |
 
 Managed mod versions and exact Forge 1.20.1 artifact hashes are pinned in the TFG fork. Updating a managed mod is an explicit fork commit, so upstream-pack merges and mod-version changes are reviewed together instead of being resolved implicitly at runtime.
 
@@ -41,6 +45,23 @@ The TFG folder must contain:
     kubejs/
 
 This prevents selecting an unrelated Minecraft instance accidentally.
+
+## Linux desktop
+
+Linux desktop builds target **x86_64**, using Ubuntu 22.04 as the build baseline. Releases provide an **AppImage** and a **Debian package** alongside the Windows installers and Linux server CLI.
+
+Download the Linux installer from [GitHub Releases](https://github.com/UpperMoon0/Modpack-Manager/releases). Check it against `SHA256SUMS-linux.txt` in the same release.
+
+For the AppImage, make the downloaded file executable and launch it:
+
+    chmod +x ./Modpack.Manager_*.AppImage
+    ./Modpack.Manager_*.AppImage
+
+If your system cannot mount AppImages through FUSE, launch with `--appimage-extract-and-run` instead. Keep the AppImage in a folder you can write to; signed in-app updates replace that file.
+
+For Debian/Ubuntu, install the downloaded `.deb` with `sudo apt install ./<downloaded-file>.deb` and open **Modpack Manager** from your application menu. The package manager installs its WebKitGTK/GTK runtime dependencies. Update Debian installations by installing a newer `.deb`; Tauri's Linux in-app updater is supported for AppImage installations.
+
+Use **Browse** to select the TFG instance's `.minecraft` directory, including for Prism Launcher installations. The desktop patch workflow is the same on both operating systems.
 
 ## Desktop flow
 
@@ -74,6 +95,8 @@ The normal server wrapper prints the same live diff immediately before applying 
 
 `PATCH_CHANNEL` and `PATCH_MANIFEST` remain available as generic overrides for other patch sets.
 
+The candidate TFG overlay updates outdated custom mods to their newest compatible stable Forge 1.20.1 releases. It sets `online-mode=false` on servers through a property patch that preserves other server settings, and sets Simply Speakers `maxUploadSize=104857600` (100 MiB) on clients and servers. These pack policies take effect after the companion TFG fork release is reviewed, tagged, and promoted to `nstut/stable`.
+
 ## Generic patch engine
 
 The shared Rust `patch-core` still supports declarative manifests and stable remote channels.
@@ -84,6 +107,7 @@ Supported operations:
 - `installFile`
 - `extractZip`
 - `writeText`
+- `patchProperties`
 - `patchToml`
 - `patchYaml`
 - `patchSnbt`
@@ -124,6 +148,7 @@ Frontend:
 
     npm install
     npm test
+    npm run test:release
     npm run build
 
 Rust:
@@ -135,7 +160,14 @@ Native Windows app:
 
     npm run tauri build -- --debug
 
-CI runs all of these, including the real Windows Tauri installer bundle.
+Native Linux app (Ubuntu 22.04/Debian 12 or newer, with Rust and Node.js installed):
+
+    sudo apt-get update
+    sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+      libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+    npm run tauri:linux -- --debug
+
+Linux bundle targets are configured in `src-tauri/tauri.linux.conf.json`. CI builds real Windows installers plus Linux AppImage and Debian packages, and uploads Linux debug installers for PR testing. Release CI signs the AppImage updater with the same key used on Windows, verifies both platforms are present in `latest.json`, and publishes only after all installers, checksums, and the server CLI have uploaded successfully.
 
 ## Repository layout
 
