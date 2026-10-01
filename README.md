@@ -103,32 +103,19 @@ Supported operations:
 - `writeText`
 - `patchToml`
 - `patchYaml`
-- `patchu×~­¢G§²ÚîÆ­yÑ.0.1",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "test": "vitest run",
-    "tauri": "tauri",
-    "tauri:linux": "tauri build --config src-tauri/tauri.linux.conf.json",
-    "test:release": "node --test scripts/verify-desktop-release.check.mjs"
-  },
-  "dependencies": {
-    "@tauri-apps/api": "^2.11.0",
-    "@tauri-apps/plugin-dialog": "^2.7.0",
-    "@tauri-apps/plugin-process": "^2.3.0",
-    "@tauri-apps/plugin-updater": "^2.11.0",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1"
-  },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2.11.5",
-    "@types/node": "^24.7.0",
-    "@types/react": "^19.1.10",
-    "@types/react-dom": "^19.1.7",
-    "@vitejs/plugin-react": "^5.0.4",
-    "typescript": "~5.9.2",
-    "vite": "^7.1.7",
-    "vitest": "^3.2.4"
-  }
-}
+- `patchSnbt`
+
+Safety guarantees include:
+
+- SHA-256 verification before modification;
+- absolute-path and parent-traversal rejection;
+- ZIP traversal and ZIP symlink rejection;
+- symlink-safe destination handling;
+- per-installation locking;
+- backups under `.modpack-manager/backups`;
+- automatic rollback after a failed later operation;
+- live pre-patch diffing for managed files, text, TOML, YAML and SNBT scalar overlays;
+- no-op skipping so already-correct managed files are not rewritten;
+- separate client and server patch state.
+
+## Modpack Manager self-upd{ß›h‘éì¶»§q«^uÉÌ°¡•­ÍÕµÌ°…¹Ñ¡”Í•ÉÙ•È1$¡…Ù”ÕÁ±½…‘•ÍÕ•ÍÍ™Õ±±ä¸((ŒŒI•Á½Í¥Ñ½Éä±…å½ÕĞ((€€€É…Ñ•Ì½Á…Ñ µ½É”¼€€Á¥¹¹•Q™½É¬µµ…¹¥™•ÍĞÉ•Í½±Ù•È€¬•¹•É¥ŒÁ…Ñ ½¡…¹¹•°½‰…­ÕÀ½É½±±‰…¬•¹¥¹”(€€€É…Ñ•Ì½µ½‘Á…­Ñ°¼€€Í•ÉÙ•È½¡•…‘±•ÍÌ1$(€€€ÍÉŒ¼€€€€€€€€€€€€€€€€I•…Ğ€¬QåÁ•MÉ¥ÁĞQU$…¹…ÁÀÕÁ‘…Ñ•È(€€€ÍÉŒµÑ…ÕÉ¤¼€€€€€€€€€€Q…ÕÉ¤½µµ…¹‘Ì…¹ÕÁ‘…Ñ•ÈÁ±Õ¥¹Ì(€€€ÍÉ¥ÁÑÌ¼€€€€€€€€€€€€Í•ÉÙ•ÈİÉ…ÁÁ•È€¬É•±•…Í”¡•±Á•ÉÌ(€€€•á…µÁ±•Ì¼€€€€€€€€€€€•¹•É¥Œ¡…¹¹•°½µ…¹¥™•ÍĞ•á…µÁ±•Ì
