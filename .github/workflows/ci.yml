@@ -18,6 +18,7 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund
       - run: npm test
+      - run: npm run test:release
       - run: npm run build
       - run: node --check scripts/prepare-release.mjs
       - run: node --check scripts/prepare-windows-signing.mjs
@@ -60,3 +61,28 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: npm install --no-audit --no-fund
       - run: npm run tauri build -- --debug
+
+  tauri-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: npm install --no-audit --no-fund
+      - run: npm run tauri:linux -- --debug
+      - name: Upload Linux test installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: modpack-manager-linux-x86_64-debug
+          path: |
+            target/debug/bundle/deb/*.deb
+            target/debug/bundle/appimage/*.AppImage
+          if-no-files-found: error

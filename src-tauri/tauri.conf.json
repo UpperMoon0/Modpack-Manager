@@ -31,6 +31,7 @@
     "targets": "all",
     "createUpdaterArtifacts": false,
     "icon": [
+      "icons/icon.png",
       "icons/icon.ico"
     ]
   },

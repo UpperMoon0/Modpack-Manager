@@ -287,7 +287,7 @@ export default function App() {
               <input
                 value={folderDraft}
                 onChange={(event) => setFolderDraft(event.target.value)}
-                placeholder={"C:\\Games\\PrismLauncher\\instances\\TFG\\.minecraft"}
+                placeholder="Select the TFG instance .minecraft folder"
                 spellCheck={false}
               />
               <button className="secondary" onClick={chooseRoot}>Browse</button>

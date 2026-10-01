@@ -42,6 +42,23 @@ The TFG folder must contain:
 
 This prevents selecting an unrelated Minecraft instance accidentally.
 
+## Linux desktop
+
+Linux desktop builds target **x86_64**, using Ubuntu 22.04 as the build baseline. Releases provide an **AppImage** and a **Debian package** alongside the Windows installers and Linux server CLI.
+
+Download the Linux installer from [GitHub Releases](https://github.com/UpperMoon0/Modpack-Manager/releases). Check it against `SHA256SUMS-linux.txt` in the same release.
+
+For the AppImage, make the downloaded file executable and launch it:
+
+    chmod +x ./Modpack.Manager_*.AppImage
+    ./Modpack.Manager_*.AppImage
+
+If your system cannot mount AppImages through FUSE, launch with `--appimage-extract-and-run` instead. Keep the AppImage in a folder you can write to; signed in-app updates replace that file.
+
+For Debian/Ubuntu, install the downloaded `.deb` with `sudo apt install ./<downloaded-file>.deb` and open **Modpack Manager** from your application menu. The package manager installs its WebKitGTK/GTK runtime dependencies. Update Debian installations by installing a newer `.deb`; Tauri's Linux in-app updater is supported for AppImage installations.
+
+Use **Browse** to select the TFG instance's `.minecraft` directory, including for Prism Launcher installations. The desktop patch workflow is the same on both operating systems.
+
 ## Desktop flow
 
 1. Enter or browse to the TFG game directory.
@@ -86,62 +103,32 @@ Supported operations:
 - `writeText`
 - `patchToml`
 - `patchYaml`
-- `patchSnbt`
-
-Safety guarantees include:
-
-- SHA-256 verification before modification;
-- absolute-path and parent-traversal rejection;
-- ZIP traversal and ZIP symlink rejection;
-- symlink-safe destination handling;
-- per-installation locking;
-- backups under `.modpack-manager/backups`;
-- automatic rollback after a failed later operation;
-- live pre-patch diffing for managed files, text, TOML, YAML and SNBT scalar overlays;
-- no-op skipping so already-correct managed files are not rewritten;
-- separate client and server patch state.
-
-## Modpack Manager self-update
-
-The app uses the Tauri updater against:
-
-    https://github.com/UpperMoon0/Modpack-Manager/releases/latest/download/latest.json
-
-It checks on launch and every six hours. Application updates are presented in a global app-update area, separate from the selected TFG installation. When a newer signed release is detected, an in-app notification offers a one-click install-and-restart action. Silent automatic checks degrade quietly on transient network failures; manual checks report errors in the application panel.
-
-Updater releases are signed. Release CI requires:
-
-- `TAURI_SIGNING_PRIVATE_KEY`
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-
-The public verification key is embedded in `src-tauri/tauri.conf.json`; the private key is never committed.
-
-Windows Authenticode signing is optional and independent from updater signing. When both `WINDOWS_CERTIFICATE` and `WINDOWS_CERTIFICATE_PASSWORD` are configured, release CI validates the trusted Code Signing certificate and verifies the generated EXE/MSI signatures before publication. Without those secrets, Windows installers are published without Authenticode while Tauri updater signing remains mandatory. SHA-256 checksums are published in either case. See [CODE_SIGNING.md](CODE_SIGNING.md).
-
-## Development
-
-Frontend:
-
-    npm install
-    npm test
-    npm run build
-
-Rust:
-
-    cargo test -p patch-core -p modpackctl
-    cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
-
-Native Windows app:
-
-    npm run tauri build -- --debug
-
-CI runs all of these, including the real Windows Tauri installer bundle.
-
-## Repository layout
-
-    crates/patch-core/   pinned TFG fork-manifest resolver + generic patch/channel/backup/rollback engine
-    crates/modpackctl/   server/headless CLI
-    src/                 React + TypeScript TFG UI and app updater
-    src-tauri/           Tauri commands and updater plugins
-    scripts/             server wrapper + release helpers
-    examples/            generic channel/manifest examples
+- `patchu◊~≠¢Gß≤⁄Óù∆≠y—.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "tauri": "tauri",
+    "tauri:linux": "tauri build --config src-tauri/tauri.linux.conf.json",
+    "test:release": "node --test scripts/verify-desktop-release.check.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-dialog": "^2.7.0",
+    "@tauri-apps/plugin-process": "^2.3.0",
+    "@tauri-apps/plugin-updater": "^2.11.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.5",
+    "@types/node": "^24.7.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.4",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.7",
+    "vitest": "^3.2.4"
+  }
+}
