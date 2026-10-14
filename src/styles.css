@@ -87,6 +87,8 @@ input {
 }
 input:focus { border-color: #4f7480; box-shadow: 0 0 0 3px rgba(79, 116, 128, .12); }
 .pathRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; }
+.freshInstallPanel { margin: 18px 0; }
+.freshInstallPanel code { overflow-wrap: anywhere; }
 .toolbar, .appActions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .primary, .secondary { min-height: 42px; border-radius: 10px; font-weight: 700; }
 .primary { border: 1px solid #446d78; background: linear-gradient(#365d68, #294b55); color: #f6fbfc; }

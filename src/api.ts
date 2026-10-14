@@ -4,7 +4,9 @@ import type {
   PatchPlan,
   PatchState,
   ResolvedPatchChannel,
-  TfgPlanResponse
+  TfgPlanResponse,
+  FreshInstallPlan,
+  FreshInstallResult
 } from "./types";
 
 export const patchApi = {
@@ -23,6 +25,12 @@ export const patchApi = {
 };
 
 export const tfgApi = {
+  installPlan(destination: string) {
+    return invoke<FreshInstallPlan>("plan_tfg_install", { destination });
+  },
+  install(destination: string, expectedPatchVersion: string) {
+    return invoke<FreshInstallResult>("install_tfg", { destination, expectedPatchVersion });
+  },
   plan(root: string) {
     return invoke<TfgPlanResponse>("plan_tfg_patch", { root });
   },

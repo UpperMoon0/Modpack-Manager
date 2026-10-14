@@ -1,5 +1,6 @@
 mod channel;
 mod engine;
+mod install;
 mod migration;
 mod properties;
 mod schema;
@@ -13,3 +14,5 @@ pub use engine::{
 };
 pub use schema::{Artifact, Operation, PatchManifest, Target};
 pub use tfg::{resolve_tfg_patch, TfgResolvedMod, TfgResolvedPatch};
+
+pub use install::{install_client, plan_client_install, FreshInstallPlan, FreshInstallResult};

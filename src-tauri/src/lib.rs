@@ -1,7 +1,7 @@
 use patch_core::{
     apply_manifest, load_manifest, load_patch_channel, plan_manifest, read_state, resolve_tfg_patch,
     ApplyResult, PatchPlan, PatchProgress, PatchState, ProgressCallback, ResolvedPatchChannel,
-    Target, TfgResolvedMod,
+    Target, TfgResolvedMod, plan_client_install, install_client, FreshInstallPlan, FreshInstallResult,
 };
 use serde::Serialize;
 use std::path::PathBuf;
@@ -9,6 +9,26 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
 const TFG_SOURCE: &str = "tfg://managed/forge-1.20.1";
+
+#[tauri::command]
+async fn plan_tfg_install(destination: String) -> Result<FreshInstallPlan, String> {
+    let resolved = resolve_tfg_patch().await.map_err(format_error)?;
+    plan_client_install(&resolved.manifest, &PathBuf::from(destination)).map_err(format_error)
+}
+
+#[tauri::command]
+async fn install_tfg(
+    app: AppHandle,
+    destination: String,
+    expected_patch_version: String,
+) -> Result<FreshInstallResult, String> {
+    let resolved = resolve_tfg_patch().await.map_err(format_error)?;
+    if resolved.manifest.version != expected_patch_version {
+        return Err("TFG changed while this install was open. Check the install again.".into());
+    }
+    install_client(&resolved.manifest, TFG_SOURCE, &PathBuf::from(destination),
+        Some(progress_callback(app))).await.map_err(format_error)
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -120,6 +140,8 @@ pub fn run() {
             apply_patch,
             plan_tfg_patch,
             apply_tfg_patch,
+            plan_tfg_install,
+            install_tfg,
             read_patch_state
         ])
         .run(tauri::generate_context!())
