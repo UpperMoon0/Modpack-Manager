@@ -97,7 +97,7 @@ pub fn read_state(root: &Path, target: Target) -> Result<Option<PatchState>> {
 
 pub fn plan_manifest(manifest: &PatchManifest, root: &Path, target: Target) -> Result<PatchPlan> {
     validate_manifest(manifest)?;
-    validate_root(root, manifest)?;
+    validate_root(root, manifest, target)?;
 
     let state = read_state(root, target)?;
     let already_applied = state.as_ref().is_some_and(|state| {
@@ -116,6 +116,11 @@ pub fn plan_manifest(manifest: &PatchManifest, root: &Path, target: Target) -> R
 
     for operation in &selected {
         match operation {
+            Operation::MigratePack { marker, .. } => {
+                if crate::migration::needed(operation, root)? {
+                    items.push(PlanItem { kind: "migratePack".into(), path: marker.clone(), detail: "Upgrade the complete upstream base while preserving world and custom settings".into() });
+                }
+            }
             Operation::RemoveMatching { pattern, .. } => {
                 for path in resolve_matches(root, pattern)? {
                     // A managed destination is represented by its install/replace diff below.
@@ -182,7 +187,12 @@ pub fn plan_manifest(manifest: &PatchManifest, root: &Path, target: Target) -> R
                 }
 
                 items.push(PlanItem {
-                    kind: if path.exists() { "replaceText" } else { "writeText" }.into(),
+                    kind: if path.exists() {
+                        "replaceText"
+                    } else {
+                        "writeText"
+                    }
+                    .into(),
                     path: destination.clone(),
                     detail: if path.exists() {
                         "Managed text differs from desired content".into()
@@ -313,7 +323,7 @@ pub async fn apply_manifest(
     progress: Option<ProgressCallback>,
 ) -> Result<ApplyResult> {
     validate_manifest(manifest)?;
-    validate_root(root, manifest)?;
+    validate_root(root, manifest, target)?;
 
     let manager_dir = root.join(".modpack-manager");
     fs::create_dir_all(&manager_dir)
@@ -338,10 +348,27 @@ pub async fn apply_manifest(
         .collect();
     let desired_files = desired_install_files(manifest, target)?;
 
-    let artifact_ids: HashSet<&str> = selected
-        .iter()
-        .filter_map(|operation| operation.artifact_id())
-        .collect();
+    let mut artifact_ids = HashSet::new();
+    for operation in &selected {
+        if matches!(operation, Operation::MigratePack { .. })
+            && !crate::migration::needed(operation, root)?
+        {
+            continue;
+        }
+        if let Operation::InstallFile { destination, .. } = operation {
+            if let Some(expected) = desired_files.get(Path::new(destination)) {
+                ensure_no_symlink_components(root, Path::new(destination))?;
+                if root.join(destination).is_file()
+                    && verify_sha256(&root.join(destination), expected)?
+                {
+                    continue;
+                }
+            }
+        }
+        if let Some(id) = operation.artifact_id() {
+            artifact_ids.insert(id);
+        }
+    }
 
     let cache_dir = manager_dir
         .join("cache")
@@ -397,6 +424,21 @@ pub async fn apply_manifest(
             );
 
             match operation {
+                Operation::MigratePack { artifact, .. } => {
+                    if crate::migration::needed(operation, root)? {
+                        let source = cached_artifacts
+                            .get(artifact)
+                            .context("migration archive was not prepared")?;
+                        crate::migration::apply(
+                            source,
+                            root,
+                            operation,
+                            &mut transaction,
+                            &progress,
+                            &desired_files,
+                        )?;
+                    }
+                }
                 Operation::RemoveMatching { pattern, .. } => {
                     for relative in resolve_matches(root, pattern)? {
                         if desired_files.contains_key(&relative) {
@@ -564,6 +606,11 @@ pub async fn apply_manifest(
             );
         }
 
+        for operation in &selected {
+            if matches!(operation, Operation::MigratePack { .. }) {
+                crate::migration::finish(root, operation, &mut transaction, &progress)?;
+            }
+        }
         let state = PatchState {
             manifest_id: manifest.id.clone(),
             manifest_version: manifest.version.clone(),
@@ -629,13 +676,16 @@ async fn prepare_artifact(
 
     let source = resolve_artifact_source(manifest_source, &artifact.url)?;
     let bytes = load_bytes(&source).await?;
-    verify_bytes_sha256(&bytes, &artifact.sha256)
-        .with_context(|| format!("checksum verification failed for artifact {:?}", artifact.id))?;
+    verify_bytes_sha256(&bytes, &artifact.sha256).with_context(|| {
+        format!(
+            "checksum verification failed for artifact {:?}",
+            artifact.id
+        )
+    })?;
 
     let temporary = destination.with_extension("part");
-    fs::write(&temporary, bytes).with_context(|| {
-        format!("failed to write temporary artifact {}", temporary.display())
-    })?;
+    fs::write(&temporary, bytes)
+        .with_context(|| format!("failed to write temporary artifact {}", temporary.display()))?;
     if destination.exists() {
         remove_path(&destination)?;
     }
@@ -672,7 +722,7 @@ fn verify_bytes_sha256(bytes: &[u8], expected: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_root(root: &Path, manifest: &PatchManifest) -> Result<()> {
+fn validate_root(root: &Path, manifest: &PatchManifest, target: Target) -> Result<()> {
     if !root.exists() {
         bail!("modpack root {} does not exist", root.display());
     }
@@ -689,6 +739,10 @@ fn validate_root(root: &Path, manifest: &PatchManifest) -> Result<()> {
         let relative = Path::new(required);
         ensure_no_symlink_components(root, relative)?;
         if !root.join(relative).exists() {
+            if let Some(operation) = manifest.operations.iter().find(|op| matches!(op, Operation::MigratePack { marker, .. } if marker == required && op.applies_to(target))) {
+                crate::migration::needed(operation, root)?;
+                continue;
+            }
             bail!(
                 "selected directory is not compatible with this patch: required path {:?} is missing",
                 required
@@ -698,7 +752,7 @@ fn validate_root(root: &Path, manifest: &PatchManifest) -> Result<()> {
     Ok(())
 }
 
-fn ensure_no_symlink_components(root: &Path, relative: &Path) -> Result<()> {
+pub(crate) fn ensure_no_symlink_components(root: &Path, relative: &Path) -> Result<()> {
     let mut current = root.to_path_buf();
     for component in relative.components() {
         current.push(component);
@@ -758,7 +812,10 @@ fn resolve_matches(root: &Path, pattern: &str) -> Result<Vec<PathBuf>> {
     Ok(minimal)
 }
 
-fn desired_install_files(manifest: &PatchManifest, target: Target) -> Result<HashMap<PathBuf, String>> {
+fn desired_install_files(
+    manifest: &PatchManifest,
+    target: Target,
+) -> Result<HashMap<PathBuf, String>> {
     let mut desired = HashMap::new();
 
     for operation in manifest
@@ -825,9 +882,7 @@ fn toml_value_matches(
     expected: &serde_json::Value,
 ) -> Result<bool> {
     let parts: Vec<&str> = dotted_key.split('.').collect();
-    let (leaf, parents) = parts
-        .split_last()
-        .context("TOML key cannot be empty")?;
+    let (leaf, parents) = parts.split_last().context("TOML key cannot be empty")?;
 
     let mut table = document.as_table();
     for part in parents {
@@ -908,7 +963,10 @@ fn extract_zip(
     for index in 0..archive.len() {
         let entry = archive.by_index(index)?;
         if is_zip_symlink(entry.unix_mode()) {
-            bail!("archive contains forbidden symlink entry {:?}", entry.name());
+            bail!(
+                "archive contains forbidden symlink entry {:?}",
+                entry.name()
+            );
         }
         let enclosed = entry
             .enclosed_name()
@@ -937,8 +995,8 @@ fn extract_zip(
             fs::create_dir_all(parent)?;
         }
 
-        let mut target =
-            File::create(&output).with_context(|| format!("failed to create {}", output.display()))?;
+        let mut target = File::create(&output)
+            .with_context(|| format!("failed to create {}", output.display()))?;
         std::io::copy(&mut entry, &mut target)
             .with_context(|| format!("failed to extract {}", output.display()))?;
         target.flush()?;
@@ -974,12 +1032,15 @@ fn state_path(root: &Path, target: Target) -> PathBuf {
 
 fn operation_message(operation: &Operation) -> String {
     match operation {
+        Operation::MigratePack { .. } => "Migrating the complete upstream pack".into(),
         Operation::RemoveMatching { pattern, .. } => format!("Removing paths matching {pattern}"),
         Operation::InstallFile { destination, .. } => format!("Installing {destination}"),
         Operation::ExtractZip { destination, .. } => format!("Updating {destination}"),
         Operation::WriteText { destination, .. } => format!("Writing {destination}"),
         Operation::PatchToml { destination, .. } => format!("Patching TOML {destination}"),
-        Operation::PatchProperties { destination, .. } => format!("Patching properties {destination}"),
+        Operation::PatchProperties { destination, .. } => {
+            format!("Patching properties {destination}")
+        }
         Operation::PatchYaml { destination, .. } => format!("Patching YAML {destination}"),
         Operation::PatchSnbt { destination, .. } => format!("Patching SNBT {destination}"),
     }
@@ -1008,15 +1069,18 @@ fn patch_yaml_file(path: &Path, values: &BTreeMap<String, serde_json::Value>) ->
     let source = fs::read_to_string(path)
         .with_context(|| format!("failed to read YAML {}", path.display()))?;
     let rendered = render_patched_yaml(&source, values)?;
-    fs::write(path, rendered)
-        .with_context(|| format!("failed to write YAML {}", path.display()))
+    fs::write(path, rendered).with_context(|| format!("failed to write YAML {}", path.display()))
 }
 
 fn render_patched_yaml(
     source: &str,
     values: &BTreeMap<String, serde_json::Value>,
 ) -> Result<String> {
-    let line_ending = if source.contains("\r\n") { "\r\n" } else { "\n" };
+    let line_ending = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let had_trailing_newline = source.ends_with('\n');
     let mut lines: Vec<String> = source.lines().map(str::to_owned).collect();
 
@@ -1031,7 +1095,10 @@ fn render_patched_yaml(
                 continue;
             };
 
-            while stack.last().is_some_and(|(parent_indent, _)| *parent_indent >= indent) {
+            while stack
+                .last()
+                .is_some_and(|(parent_indent, _)| *parent_indent >= indent)
+            {
                 stack.pop();
             }
 
@@ -1053,7 +1120,8 @@ fn render_patched_yaml(
             }
         }
 
-        let index = matched_line.with_context(|| format!("YAML key {dotted_key:?} was not found"))?;
+        let index =
+            matched_line.with_context(|| format!("YAML key {dotted_key:?} was not found"))?;
         let line = &lines[index];
         let colon = line
             .find(':')
@@ -1214,8 +1282,7 @@ fn patch_snbt_file(
     let source = fs::read_to_string(path)
         .with_context(|| format!("failed to read SNBT {}", path.display()))?;
     let rendered = render_patched_snbt(&source, values, replace_all)?;
-    fs::write(path, rendered)
-        .with_context(|| format!("failed to write SNBT {}", path.display()))
+    fs::write(path, rendered).with_context(|| format!("failed to write SNBT {}", path.display()))
 }
 
 fn render_patched_snbt(
@@ -1223,7 +1290,11 @@ fn render_patched_snbt(
     values: &BTreeMap<String, serde_json::Value>,
     replace_all: bool,
 ) -> Result<String> {
-    let line_ending = if source.contains("\r\n") { "\r\n" } else { "\n" };
+    let line_ending = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let had_trailing_newline = source.ends_with('\n');
     let mut lines: Vec<String> = source.lines().map(str::to_owned).collect();
 
@@ -1294,9 +1365,7 @@ fn set_toml_value(
     value: &serde_json::Value,
 ) -> Result<()> {
     let parts: Vec<&str> = dotted_key.split('.').collect();
-    let (leaf, parents) = parts
-        .split_last()
-        .context("TOML key cannot be empty")?;
+    let (leaf, parents) = parts.split_last().context("TOML key cannot be empty")?;
 
     let mut table = document.as_table_mut();
     for part in parents {
@@ -1379,7 +1448,8 @@ fn remove_path(path: &Path) -> Result<()> {
         fs::remove_dir_all(path)
             .with_context(|| format!("failed to remove directory {}", path.display()))?;
     } else {
-        fs::remove_file(path).with_context(|| format!("failed to remove file {}", path.display()))?;
+        fs::remove_file(path)
+            .with_context(|| format!("failed to remove file {}", path.display()))?;
     }
 
     Ok(())
@@ -1430,7 +1500,7 @@ struct TouchedPath {
     existed: bool,
 }
 
-struct Transaction {
+pub(crate) struct Transaction {
     root: PathBuf,
     backup_root: PathBuf,
     touched: Vec<TouchedPath>,
@@ -1445,7 +1515,7 @@ impl Transaction {
         }
     }
 
-    fn backup_once(
+    pub(crate) fn backup_once(
         &mut self,
         relative: &Path,
         progress: &Option<ProgressCallback>,

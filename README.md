@@ -1,5 +1,18 @@
 # Modpack Manager
 
+## Automatic TFG base upgrades
+
+Version 1.0.7 can upgrade an installed TFG 0.13.10 pack to the complete 0.13.12
+base before applying the custom overlay. Update Manager first, close Minecraft,
+then use the normal TFG update. The update verifies the source base and every
+download, backs up changed files, removes known obsolete upstream files, preserves
+worlds, identity data and custom files, and carries modified TOML/JSON settings into
+the new defaults. Unsupported modified config formats are retained. A failed update
+restores the original files; an interrupted migration can resume. The completion
+marker is committed only after all upstream mods and overlay operations succeed.
+
+GitHub transport and temporary server failures use bounded download retries.
+
 A Tauri + React + Rust updater for maintaining the NsTut TFG Forge 1.20.1 client/server patch set.
 
 ## TFG managed profile
