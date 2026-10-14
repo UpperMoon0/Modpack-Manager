@@ -71,6 +71,21 @@ describe("Manager navigation", () => {
    expect(screen.getByText("0.13.12-nstut.4")).toBeTruthy();
   } finally {vi.useRealTimers();}
  });
+ it("does not restore a replaced folder when its older check completes", async () => {
+  const old = deferred<TfgPlanResponse>();
+  const previous = "/packs/old/.minecraft", replacement = "/packs/new/.minecraft";
+  localStorage.setItem(ROOT_KEY, previous);
+  mocks.plan.mockImplementation(root => root === previous ? old.promise : Promise.resolve(plan(root)));
+  render(<App />);
+  fireEvent.click(screen.getByText("Change folder"));
+  fireEvent.change(screen.getByRole("textbox", { name: "Game folder" }), { target: { value: replacement } });
+  fireEvent.click(screen.getByRole("button", { name: "Add installation" }));
+  await waitFor(() => expect(localStorage.getItem(ROOT_KEY)).toBe(replacement));
+  await act(async () => old.resolve(plan(previous)));
+  expect(JSON.parse(localStorage.getItem(PACKS_KEY)!).map((pack: { root: string }) => pack.root)).toEqual([replacement]);
+  fireEvent.click(screen.getAllByRole("button", { name: "My packs" })[0]);
+  expect(screen.getAllByRole("article")).toHaveLength(1);
+ });
  it("validates a new install in a wizard and passes the reviewed version to installation",async()=>{
   mocks.installPlan.mockResolvedValue({version:"0.13.12-nstut.1",destination:"/new",artifactCount:304,minecraftVersion:"1.20.1",forgeVersion:"47.4.13"});mocks.install.mockResolvedValue({version:"0.13.12-nstut.1",minecraftRoot:"/new/.minecraft",instancePath:"/new",archivePath:"/new/TFG.zip"});
   render(<App />);fireEvent.click(screen.getByRole("button",{name:"Add your first pack"}));fireEvent.click(screen.getByRole("button",{name:/Install new/}));

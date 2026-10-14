@@ -35,8 +35,8 @@ export function readLibrary(storage: Pick<Storage, "getItem">): SavedPack[] {
 }
 export function rememberPack(packs: SavedPack[], root: string, state: PatchState | null, replaceRoot?: string) {
   const existing = packs.find((pack) => rootKey(pack.root) === rootKey(root));
-  const next = { root, version: state?.manifestVersion ?? existing?.version ?? null,
-    appliedAt: state?.appliedAt ?? existing?.appliedAt ?? null };
+  const next = { root, version: state?.manifestVersion ?? null,
+    appliedAt: state?.appliedAt ?? null };
   const retained = packs.filter((pack) => !replaceRoot || rootKey(pack.root) !== rootKey(replaceRoot) || rootKey(pack.root) === rootKey(root));
   return existing ? retained.map((pack) => rootKey(pack.root) === rootKey(root) ? next : pack) : [...retained, next];
 }

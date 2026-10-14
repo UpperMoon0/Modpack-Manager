@@ -134,6 +134,11 @@ export default function App() {
    if (generations.current[key] === generation) setLoading((previous) => previous.filter((item) => item !== key));
   }
  }
+ function invalidateCheck(root: string) {
+  const key = rootKey(root);
+  generations.current[key] = (generations.current[key] ?? 0) + 1;
+  setLoading((previous) => previous.filter((item) => item !== key));
+ }
  function beginOperation(root: string, title: string) {
   if (operationRef.current || appInstallingRef.current) return false;
   const next = { root, title };
@@ -141,9 +146,7 @@ export default function App() {
   setOperation(next);
   setProgress(null);
   setError("");
-  const key = rootKey(root);
-  generations.current[key] = (generations.current[key] ?? 0) + 1;
-  setLoading((previous) => previous.filter((item) => item !== key));
+  invalidateCheck(root);
   return true;
  }
  function finishOperation() { operationRef.current = null; setOperation(null); setProgress(null); }
@@ -184,6 +187,9 @@ export default function App() {
    if (step === "existing") {
     const root = folder.trim();
     const [data, state] = await Promise.all([tfgApi.plan(root), tfgApi.state(root)]);
+    // A replaced folder must not be re-added by a check that began earlier.
+    invalidateCheck(root);
+    if (replaceRoot) invalidateCheck(replaceRoot);
     remember(root, state, replaceRoot);
     setViews((previous) => ({ ...previous, [rootKey(root)]: { data, state, checkedAt: new Date().toISOString() } }));
     selectPack(root, true); setWizardOpen(false);
