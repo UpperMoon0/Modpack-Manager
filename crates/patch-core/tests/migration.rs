@@ -83,3 +83,16 @@ fn rejects_unknown_base_and_forged_completion_marker() {
     fs::write(root.path().join(".nstut-tfg-base-12"),b"base12\n").unwrap();
     assert!(plan_manifest(&m,root.path(),Target::Server).is_err());
 }
+
+#[tokio::test]
+async fn prepares_matching_overlay_before_base_replaces_it() {
+    let (root,source,mut m)=fixture(false);
+    let data=b"already correct custom overlay";
+    fs::write(root.path().join("kubejs/new.js"),data).unwrap();
+    let overlay=source.path().join("overlay.js");fs::write(&overlay,data).unwrap();
+    m.artifacts.push(serde_json::from_value(json!({"id":"overlay","url":overlay.to_str().unwrap(),"sha256":hash(data)})).unwrap());
+    m.operations.push(serde_json::from_value(json!({"type":"installFile","artifact":"overlay","destination":"kubejs/new.js"})).unwrap());
+    apply_manifest(&m,"migration.json",root.path(),Target::Server,None).await.unwrap();
+    assert_eq!(fs::read(root.path().join("kubejs/new.js")).unwrap(),data);
+    assert!(plan_manifest(&m,root.path(),Target::Server).unwrap().items.is_empty());
+}

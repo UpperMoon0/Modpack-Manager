@@ -348,6 +348,12 @@ pub async fn apply_manifest(
         .collect();
     let desired_files = desired_install_files(manifest, target)?;
 
+    let mut migrating = false;
+    for operation in &selected {
+        if matches!(operation, Operation::MigratePack { .. }) {
+            migrating |= crate::migration::needed(operation, root)?;
+        }
+    }
     let mut artifact_ids = HashSet::new();
     for operation in &selected {
         if matches!(operation, Operation::MigratePack { .. })
@@ -358,7 +364,7 @@ pub async fn apply_manifest(
         if let Operation::InstallFile { destination, .. } = operation {
             if let Some(expected) = desired_files.get(Path::new(destination)) {
                 ensure_no_symlink_components(root, Path::new(destination))?;
-                if root.join(destination).is_file()
+                if !migrating && root.join(destination).is_file()
                     && verify_sha256(&root.join(destination), expected)?
                 {
                     continue;
