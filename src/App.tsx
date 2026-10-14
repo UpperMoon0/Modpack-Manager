@@ -11,7 +11,9 @@ import type {
   ApplyResult,
   PatchProgress,
   PatchState,
-  TfgPlanResponse
+  TfgPlanResponse,
+  FreshInstallPlan,
+  FreshInstallResult
 } from "./types";
 
 const TFG_UPDATE_INTERVAL_MS = 30 * 60 * 1000;
@@ -35,6 +37,9 @@ export default function App() {
   const [error, setError] = useState("");
   const [checkingTfg, setCheckingTfg] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [installDestination, setInstallDestination] = useState("");
+  const [installPlan, setInstallPlan] = useState<FreshInstallPlan | null>(null);
+  const [installed, setInstalled] = useState<FreshInstallResult | null>(null);
   const [lastPatchCheck, setLastPatchCheck] = useState<string | null>(null);
 
   const [appVersion, setAppVersion] = useState("…");
@@ -188,6 +193,48 @@ export default function App() {
     }
   }
 
+  async function chooseInstallFolder() {
+    const selected = await open({ directory: true, multiple: false,
+      title: "Choose an empty folder for your new TFG installation" });
+    if (typeof selected === "string") {
+      setInstallDestination(selected);
+      setInstallPlan(null);
+      setInstalled(null);
+    }
+  }
+
+  async function checkInstall() {
+    if (busy || !installDestination.trim()) return;
+    setBusy(true);
+    setError("");
+    setInstallPlan(null);
+    try {
+      setInstallPlan(await tfgApi.installPlan(installDestination.trim()));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function freshInstall() {
+    if (busy || !installPlan) return;
+    setBusy(true);
+    setError("");
+    setInstalled(null);
+    try {
+      const next = await tfgApi.install(installPlan.destination, installPlan.version);
+      setInstalled(next);
+      setInstallPlan(null);
+      await useFolder(next.minecraftRoot);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  }
+
   async function refreshTfg(silent: boolean) {
     if (!root.trim()) return;
 
@@ -290,10 +337,10 @@ export default function App() {
                 placeholder="Select the TFG instance .minecraft folder"
                 spellCheck={false}
               />
-              <button className="secondary" onClick={chooseRoot}>Browse</button>
+              <button className="secondary" disabled={busy} onClick={chooseRoot}>Browse</button>
               <button
                 className="primary compact"
-                disabled={!folderDraft.trim()}
+                disabled={busy || !folderDraft.trim()}
                 onClick={() => void useFolder()}
               >
                 Use folder
@@ -304,7 +351,7 @@ export default function App() {
           <div className="toolbar">
             <button
               className="secondary"
-              disabled={!root || checkingTfg}
+              disabled={busy || !root || checkingTfg}
               onClick={() => void refreshTfg(false)}
             >
               {checkingTfg ? "Checking…" : "Check TFG updates"}
@@ -369,6 +416,43 @@ export default function App() {
           {appUpdateStatus && <div className="appUpdateMessage">{appUpdateStatus}</div>}
         </section>
       </div>
+
+      <section className="panel freshInstallPanel">
+        <div className="heading"><span>NEW</span><h2>Install TFG from scratch</h2></div>
+        <p className="sectionCopy">
+          Download the complete NsTut pack without installing TFG elsewhere first.
+          Choose a new or empty folder. When ready, import the ZIP into Prism Launcher;
+          Prism installs Minecraft and Forge and handles your account and Java 17.
+        </p>
+        <label>
+          New installation folder
+          <div className="pathRow">
+            <input value={installDestination} disabled={busy} spellCheck={false}
+              placeholder="Choose an empty folder"
+              onChange={(event) => {
+                setInstallDestination(event.target.value);
+                setInstallPlan(null);
+                setInstalled(null);
+              }} />
+            <button className="secondary" disabled={busy} onClick={chooseInstallFolder}>Browse</button>
+            <button className="secondary" disabled={busy || !installDestination.trim()}
+              onClick={checkInstall}>Check install</button>
+          </div>
+        </label>
+        {installPlan && <div className="toolbar">
+          <span>TFG {installPlan.version} · {installPlan.artifactCount} verified downloads</span>
+          <button className="primary" disabled={busy} onClick={freshInstall}>
+            {busy ? "Installing TFG…" : "Install complete pack"}
+          </button>
+        </div>}
+        {installed && <div className="notice success">
+          <strong>TFG {installed.version} installed.</strong>
+          <p>In Prism Launcher, choose Add Instance → Import and select:</p>
+          <code>{installed.archivePath}</code>
+          <p>After importing, use Browse above to select the imported instance’s .minecraft
+            folder for future updates. The prepared folder is already selected here.</p>
+        </div>}
+      </section>
 
       <div className="contentGrid">
         <section className="panel modsPanel">

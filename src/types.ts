@@ -62,3 +62,18 @@ export interface TfgPlanResponse {
   mods: TfgResolvedMod[];
   plan: PatchPlan;
 }
+
+export interface FreshInstallPlan {
+  version: string;
+  destination: string;
+  artifactCount: number;
+  minecraftVersion: string;
+  forgeVersion: string;
+}
+
+export interface FreshInstallResult {
+  version: string;
+  instancePath: string;
+  minecraftRoot: string;
+  archivePath: string;
+}

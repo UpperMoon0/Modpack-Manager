@@ -322,8 +322,38 @@ pub async fn apply_manifest(
     target: Target,
     progress: Option<ProgressCallback>,
 ) -> Result<ApplyResult> {
+    apply_manifest_inner(manifest, manifest_source, root, target, progress, false).await
+}
+
+// Only the fresh installer calls this on its private, empty staging directory.
+pub(crate) async fn apply_fresh_manifest(
+    manifest: &PatchManifest,
+    manifest_source: &str,
+    root: &Path,
+    progress: Option<ProgressCallback>,
+) -> Result<ApplyResult> {
+    if fs::read_dir(root)?.next().is_some() {
+        bail!("fresh staging directory must be empty");
+    }
+    apply_manifest_inner(manifest, manifest_source, root, Target::Client, progress, true).await
+}
+
+async fn apply_manifest_inner(
+    manifest: &PatchManifest,
+    manifest_source: &str,
+    root: &Path,
+    target: Target,
+    progress: Option<ProgressCallback>,
+    fresh: bool,
+) -> Result<ApplyResult> {
     validate_manifest(manifest)?;
-    validate_root(root, manifest, target)?;
+    if !fresh {
+        validate_root(root, manifest, target)?;
+    } else {
+        for directory in ["mods", "config", "kubejs", "defaultconfigs"] {
+            fs::create_dir(root.join(directory))?;
+        }
+    }
 
     let manager_dir = root.join(".modpack-manager");
     fs::create_dir_all(&manager_dir)
@@ -351,13 +381,13 @@ pub async fn apply_manifest(
     let mut migrating = false;
     for operation in &selected {
         if matches!(operation, Operation::MigratePack { .. }) {
-            migrating |= crate::migration::needed(operation, root)?;
+            migrating |= fresh || crate::migration::needed(operation, root)?;
         }
     }
     let mut artifact_ids = HashSet::new();
     for operation in &selected {
         if matches!(operation, Operation::MigratePack { .. })
-            && !crate::migration::needed(operation, root)?
+            && !(fresh || crate::migration::needed(operation, root)?)
         {
             continue;
         }
@@ -431,7 +461,7 @@ pub async fn apply_manifest(
 
             match operation {
                 Operation::MigratePack { artifact, .. } => {
-                    if crate::migration::needed(operation, root)? {
+                    if fresh || crate::migration::needed(operation, root)? {
                         let source = cached_artifacts
                             .get(artifact)
                             .context("migration archive was not prepared")?;

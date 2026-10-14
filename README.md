@@ -1,8 +1,45 @@
 # Modpack Manager
 
+## Fresh client installation (1.0.8)
+
+Choose **Install TFG from scratch**, browse to an empty folder (or enter a new
+folder whose parent exists), then **Check install** and **Install complete pack**.
+The app resolves the latest approved fork release and downloads its complete
+client base plus all pinned upstream and custom mods. No preinstalled TFG pack,
+CurseForge app or CurseForge API key is required.
+
+The installation includes `instance.cfg`, `mmc-pack.json`, `.minecraft` and
+`TFG-NsTut-Prism.zip`. In [Prism Launcher](https://prismlauncher.org/wiki/help-pages/zip-import/),
+choose **Add Instance > Import** and select that ZIP. Prism handles the Minecraft
+1.20.1 / Forge 47.4.13 runtime, Java 17 and Minecraft account login. This feature
+installs the pack; it does not replace the game launcher or manage credentials.
+Alternatively, install into a new folder under Prism's `instances` directory and
+restart Prism to discover the prepared instance directly. For future updates,
+select the actual playable instance's `.minecraft` folder in Manager. Importing
+the ZIP creates a separate copy, so reselect that imported folder after import.
+
+Installation downloads and extraction happen in private staging beside the
+destination. Existing files are never overwritten; the destination is checked
+again after downloads. Hash failures or overlay failures leave it untouched,
+and temporary staging is cleaned up on normal failure. A process/OS crash can
+leave a `.tfg-install-*` temporary folder; the selected destination is not
+published until completion. Allow disk space for downloaded artifacts, unpacked
+pack files and the import ZIP. Staging cache and backups are discarded after
+success; the ZIP excludes caches, locks and backups while retaining update state.
+Fresh install currently supports the published 0.13.12 base; a future base needs
+reviewed launcher version metadata before this path accepts it.
+
+The CLI provides the same client installation flow:
+
+```sh
+modpackctl install --tfg --root /path/to/new-instance --dry-run --json
+modpackctl install --tfg --root /path/to/new-instance --json
+```
+
+
 ## Automatic TFG base upgrades
 
-Version 1.0.7 can upgrade an installed TFG 0.13.10 pack to the complete 0.13.12
+Version 1.0.8 also upgrades an installed TFG 0.13.10 pack to the complete 0.13.12
 base before applying the custom overlay. Update Manager first, close Minecraft,
 then use the normal TFG update. The update verifies the source base and every
 download, backs up changed files, removes known obsolete upstream files, preserves

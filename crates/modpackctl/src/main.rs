@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use patch_core::{
     apply_manifest, load_manifest, load_patch_channel, plan_manifest, read_state, resolve_tfg_patch,
-    PatchManifest, PatchProgress, ProgressCallback, Target,
+    PatchManifest, PatchProgress, ProgressCallback, Target, install_client, plan_client_install,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -71,6 +71,19 @@ impl PatchSource {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Download a complete client and produce a Prism Launcher import ZIP.
+    Install {
+        #[command(flatten)]
+        source: PatchSource,
+        /// New or empty destination instance folder (not an existing .minecraft).
+        #[arg(long)]
+        root: PathBuf,
+        /// Validate the destination and show the version without downloading.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
     Plan {
         #[command(flatten)]
         source: PatchSource,
@@ -119,6 +132,27 @@ impl From<CliTarget> for Target {
 #[tokio::main]
 async fn main() -> Result<()> {
     match Cli::parse().command {
+        Command::Install { source, root, dry_run, json } => {
+            let resolved = source.resolve().await?;
+            if dry_run {
+                let plan = plan_client_install(&resolved.manifest, &root)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&plan)?);
+                } else {
+                    println!("Install TFG {} into {} ({} artifacts)", plan.version, plan.destination, plan.artifact_count);
+                }
+            } else {
+                let progress: ProgressCallback = Arc::new(|event| {
+                    eprintln!("[{:?}] {}/{} {}", event.phase, event.current, event.total, event.message);
+                });
+                let result = install_client(&resolved.manifest, &resolved.source, &root, Some(progress)).await?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("Installed TFG {}. Import into Prism Launcher: {}", result.version, result.archive_path);
+                }
+            }
+        },
         Command::Plan {
             source,
             root,
