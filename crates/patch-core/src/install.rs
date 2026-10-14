@@ -36,6 +36,11 @@ fn destination_path(destination: &Path) -> Result<PathBuf> {
     } else {
         std::env::current_dir()?.join(destination)
     };
+    // Plans and result paths cross a UTF-8 API boundary. Reject unrepresentable
+    // paths rather than silently publishing into a replacement-character path.
+    if absolute.to_str().is_none() {
+        bail!("install destination must be valid UTF-8; choose a different folder");
+    }
     let parent = absolute.parent().context("choose a new instance folder")?;
     ensure_no_symlink_components(parent, Path::new(""))?;
     // Check ancestors as well as the final destination, including broken links.

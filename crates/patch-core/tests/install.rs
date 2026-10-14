@@ -164,3 +164,24 @@ fn rejects_symlink_destination_or_ancestor() {
     assert!(plan_client_install(&m, &link).is_err());
     assert!(plan_client_install(&m, &link.join("child")).is_err());
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn rejects_non_utf8_destination_without_publishing_to_a_different_path() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let (_source, m) = fixture(false);
+    let parent = tempfile::tempdir().unwrap();
+    let dest = parent.path().join(OsString::from_vec(b"fresh-\xff".to_vec()));
+    fs::create_dir(&dest).unwrap();
+    let replacement = parent.path().join("fresh-\u{fffd}");
+    let error = install_client(&m, "test.json", &dest, None)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("UTF-8"));
+    assert_eq!(fs::read_dir(&dest).unwrap().count(), 0);
+    assert!(!replacement.exists());
+    assert_eq!(fs::read_dir(parent.path()).unwrap().count(), 1);
+    assert!(plan_client_install(&m, &dest.join("child")).is_err());
+}
