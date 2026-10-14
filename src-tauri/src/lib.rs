@@ -11,6 +11,32 @@ use tauri::{AppHandle, Emitter};
 const TFG_SOURCE: &str = "tfg://managed/forge-1.20.1";
 
 #[tauri::command]
+fn open_folder(root: String) -> Result<(), String> {
+    let path = std::fs::canonicalize(PathBuf::from(root)).map_err(|error| error.to_string())?;
+    if !path.is_dir() {
+        return Err("This folder is no longer available.".into());
+    }
+    #[cfg(target_os = "windows")]
+    let path = {
+        let text = path.to_str().ok_or("This folder cannot be represented as text.")?;
+        // Explorer does not reliably accept std::fs::canonicalize's extended prefix.
+        if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+            PathBuf::from(format!(r"\\{}", unc))
+        } else {
+            PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(text))
+        }
+    };
+    #[cfg(target_os = "windows")]
+    let launcher = "explorer.exe";
+    #[cfg(target_os = "linux")]
+    let launcher = "xdg-open";
+    #[cfg(target_os = "macos")]
+    let launcher = "open";
+    std::process::Command::new(launcher).arg(path).spawn().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn plan_tfg_install(destination: String) -> Result<FreshInstallPlan, String> {
     let resolved = resolve_tfg_patch().await.map_err(format_error)?;
     plan_client_install(&resolved.manifest, &PathBuf::from(destination)).map_err(format_error)
@@ -142,6 +168,7 @@ pub fn run() {
             apply_tfg_patch,
             plan_tfg_install,
             install_tfg,
+            open_folder,
             read_patch_state
         ])
         .run(tauri::generate_context!())

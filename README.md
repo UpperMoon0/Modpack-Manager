@@ -1,12 +1,34 @@
 # Modpack Manager
 
+## Navigation (1.0.9)
+
+**My packs** shows saved TFG installations with their installed version and update
+status. Existing users' selected folder is carried into the library automatically.
+Use **Add pack > Use existing installation** to connect another game folder.
+Folders are validated before being added. Each card's menu contains **Open folder**
+and **Change folder**; its **Details** page has Overview, searchable Mods, and
+Update history tabs. Update details and mod filenames stay collapsed until needed.
+
+**Activity** retains the most recent 200 completed actions and failures, including
+recovery backup locations. History starts when using this version; a pack's existing
+last-installed version/time is also shown from the backend state. Pack lists and
+history are stored locally on this device. Checks and update actions are scoped to
+the selected installation, even if other checks finish later.
+
+**Settings** holds Manager version and application updates. Available app updates
+produce a compact notification; an application restart is blocked during pack
+installation/update. A bottom progress bar stays visible when navigating during
+an operation. Fresh installation can continue in the background; its launcher
+handoff remains available in Activity. Manager does not launch Minecraft itself.
+
+
 ## Fresh client installation (1.0.8)
 
-Choose **Install TFG from scratch**, browse to an empty folder (or enter a new
-folder whose parent exists), then **Check install** and **Install complete pack**.
-The app resolves the latest approved fork release and downloads its complete
-client base plus all pinned upstream and custom mods. No preinstalled TFG pack,
-CurseForge app or CurseForge API key is required.
+From **My packs**, choose **Add pack > Install new**. Choose a new or empty
+folder, review the version and location, then **Install pack**. The app resolves
+the latest approved fork release and downloads its complete client base plus all
+pinned upstream and custom mods. No preinstalled TFG pack, CurseForge app or
+CurseForge API key is required.
 
 The installation includes `instance.cfg`, `mmc-pack.json`, `.minecraft` and
 `TFG-NsTut-Prism.zip`. In [Prism Launcher](https://prismlauncher.org/wiki/help-pages/zip-import/),

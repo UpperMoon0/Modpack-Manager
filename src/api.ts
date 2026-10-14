@@ -25,6 +25,9 @@ export const patchApi = {
 };
 
 export const tfgApi = {
+  openFolder(root: string) {
+    return invoke<void>("open_folder", { root });
+  },
   installPlan(destination: string) {
     return invoke<FreshInstallPlan>("plan_tfg_install", { destination });
   },
