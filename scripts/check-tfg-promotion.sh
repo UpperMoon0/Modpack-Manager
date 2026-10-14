@@ -23,6 +23,25 @@ rm -rf "$ROOT"
 git clone --quiet --depth 1 --branch "$source_ref" https://github.com/UpperMoon0/TFG-Modern-Fork.git "$ROOT"
 mkdir -p "$ROOT/mods"
 
+# This is a profile-resolution fixture, not an installed game. Seed the exact
+# target-core/marker guard for cross-base releases; migration behaviour is tested
+# separately against installed-root fixtures.
+if [[ -f "$ROOT/nstut/base-migration.json" ]]; then
+  "$PYTHON" - "$ROOT" <<'PY'
+import hashlib, json, pathlib, sys, urllib.request
+root = pathlib.Path(sys.argv[1])
+metadata = json.loads((root / 'nstut/base-migration.json').read_text())
+for target in metadata['targets'].values():
+    download = next(x for x in target['downloads'] if x['path'] == target['targetFile'])
+    path = root / target['targetFile']
+    if not path.exists():
+        data = urllib.request.urlopen(download['url'], timeout=120).read()
+        assert hashlib.sha256(data).hexdigest() == target['targetSha256']
+        path.write_bytes(data)
+    (root / target['marker']).write_text(target['markerContent'])
+PY
+fi
+
 MODPACK_MANAGER_TFG_RELEASE="$release_snapshot" cargo run --quiet -p modpackctl -- plan --tfg --target client --root "$ROOT" --json > /dev/null
 MODPACK_MANAGER_TFG_RELEASE="$release_snapshot" cargo run --quiet -p modpackctl -- plan --tfg --target server --root "$ROOT" --json > /dev/null
 

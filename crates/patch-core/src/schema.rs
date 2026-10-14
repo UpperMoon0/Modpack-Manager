@@ -48,8 +48,23 @@ pub struct Artifact {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Operation {
+    MigratePack {
+        artifact: String,
+        source_file: String,
+        source_sha256: String,
+        target_file: String,
+        target_sha256: String,
+        marker: String,
+        marker_content: String,
+        #[serde(default)]
+        targets: Vec<Target>,
+    },
     RemoveMatching {
         pattern: String,
         #[serde(default)]
@@ -122,7 +137,8 @@ fn default_true() -> bool {
 impl Operation {
     pub fn targets(&self) -> &[Target] {
         match self {
-            Self::RemoveMatching { targets, .. }
+            Self::MigratePack { targets, .. }
+            | Self::RemoveMatching { targets, .. }
             | Self::InstallFile { targets, .. }
             | Self::ExtractZip { targets, .. }
             | Self::WriteText { targets, .. }
@@ -139,9 +155,9 @@ impl Operation {
 
     pub fn artifact_id(&self) -> Option<&str> {
         match self {
-            Self::InstallFile { artifact, .. } | Self::ExtractZip { artifact, .. } => {
-                Some(artifact)
-            }
+            Self::MigratePack { artifact, .. }
+            | Self::InstallFile { artifact, .. }
+            | Self::ExtractZip { artifact, .. } => Some(artifact),
             _ => None,
         }
     }
@@ -174,7 +190,10 @@ pub fn validate_manifest(manifest: &PatchManifest) -> Result<()> {
             bail!("artifact {:?} has an empty url", artifact.id);
         }
         if artifact.sha256.len() != 64
-            || !artifact.sha256.chars().all(|character| character.is_ascii_hexdigit())
+            || !artifact
+                .sha256
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
         {
             bail!(
                 "artifact {:?} must declare a 64-character SHA-256 checksum",
@@ -189,6 +208,32 @@ pub fn validate_manifest(manifest: &PatchManifest) -> Result<()> {
 
     for operation in &manifest.operations {
         match operation {
+            Operation::MigratePack {
+                artifact,
+                source_file,
+                source_sha256,
+                target_file,
+                target_sha256,
+                marker,
+                marker_content,
+                ..
+            } => {
+                ensure_artifact_exists(artifact, &ids)?;
+                crate::migration::validate_pack_path(source_file)?;
+                crate::migration::validate_pack_path(target_file)?;
+                if !marker.starts_with(".nstut-tfg-base-")
+                    || marker.contains('/')
+                    || marker.contains('\\')
+                    || marker_content.is_empty()
+                {
+                    bail!("invalid migration base marker");
+                }
+                for hash in [source_sha256, target_sha256] {
+                    if hash.len() != 64 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                        bail!("invalid migration anchor checksum");
+                    }
+                }
+            }
             Operation::RemoveMatching { pattern, .. } => validate_pattern(pattern)?,
             Operation::InstallFile {
                 artifact,
@@ -348,9 +393,9 @@ fn validate_toml_key(value: &str) -> Result<()> {
     }
     for segment in value.split('.') {
         if segment.is_empty()
-            || !segment
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+            || !segment.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+            })
         {
             bail!("TOML dotted key contains unsafe characters");
         }

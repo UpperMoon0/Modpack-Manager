@@ -23,6 +23,8 @@ fn http_client(source: &str) -> Result<Client> {
     }
 
     Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(300))
         .user_agent("Modpack-Manager/1.0 (+https://github.com/UpperMoon0/Modpack-Manager)")
         .default_headers(headers)
         .build()
@@ -31,14 +33,7 @@ fn http_client(source: &str) -> Result<Client> {
 
 pub async fn load_text(source: &str) -> Result<String> {
     if is_http(source) {
-        let response = http_client(source)?
-            .get(source)
-            .send()
-            .await
-            .with_context(|| format!("failed to download {source}"))?
-            .error_for_status()
-            .with_context(|| format!("server rejected {source}"))?;
-        return response.text().await.context("failed to read response body");
+        return String::from_utf8(http_bytes(source).await?).context("response is not UTF-8");
     }
 
     let path = local_source_path(source)?;
@@ -49,24 +44,39 @@ pub async fn load_text(source: &str) -> Result<String> {
 
 pub async fn load_bytes(source: &str) -> Result<Vec<u8>> {
     if is_http(source) {
-        let response = http_client(source)?
-            .get(source)
-            .send()
-            .await
-            .with_context(|| format!("failed to download {source}"))?
-            .error_for_status()
-            .with_context(|| format!("server rejected {source}"))?;
-        return Ok(response
-            .bytes()
-            .await
-            .context("failed to read response body")?
-            .to_vec());
+        return http_bytes(source).await;
     }
 
     let path = local_source_path(source)?;
     tokio::fs::read(&path)
         .await
         .with_context(|| format!("failed to read {}", path.display()))
+}
+
+async fn http_bytes(source: &str) -> Result<Vec<u8>> {
+    for attempt in 0..4 {
+        // A fresh connection also recovers intermittent TLS handshake failures.
+        let response = http_client(source)?.get(source).send().await;
+        let result = match response {
+            Ok(response) => {
+                let status = response.status();
+                if !status.is_success() && status.as_u16() != 429 && !status.is_server_error() {
+                    return Err(response.error_for_status().unwrap_err().into());
+                }
+                match response.error_for_status() {
+                    Ok(response) => response.bytes().await.map(|b| b.to_vec()),
+                    Err(error) => Err(error),
+                }
+            }
+            Err(error) => Err(error),
+        };
+        match result {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) if attempt == 3 => return Err(error).with_context(|| format!("failed to download {source} after bounded retries")),
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(250 << attempt)).await,
+        }
+    }
+    unreachable!()
 }
 
 pub fn resolve_artifact_source(manifest_source: &str, artifact_source: &str) -> Result<String> {

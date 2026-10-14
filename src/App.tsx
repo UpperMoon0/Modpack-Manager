@@ -429,7 +429,7 @@ export default function App() {
               <div className="operations">
                 {tfg.plan.items.map((item, index) => (
                   <div className="operation" key={item.kind + item.path + index}>
-                    <strong>{item.kind}</strong>
+                    <strong>{item.kind === "migratePack" ? "Upgrade pack" : item.kind}</strong>
                     <span>{item.path}</span>
                     <small>{item.detail}</small>
                   </div>
