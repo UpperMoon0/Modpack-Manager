@@ -25,6 +25,49 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("Manager navigation", () => {
+ it("updates the clicked card directly, locks other actions and refreshes that installation", async () => {
+  const one="/packs/one/.minecraft",two="/packs/two/.minecraft",version="0.13.15-nstut.4";
+  const pending=deferred<{state:ReturnType<typeof state>;backupPath:string;changedPaths:number}>();
+  localStorage.setItem(ROOT_KEY,one);localStorage.setItem(PACKS_KEY,JSON.stringify([{root:one},{root:two}]));
+  mocks.plan.mockImplementation(async root=>plan(root,version,1));mocks.apply.mockReturnValue(pending.promise);
+  render(<App />);await screen.findAllByRole("button",{name:"Update pack"});
+  const cards=screen.getAllByRole("article"),button=within(cards[1]).getByRole("button",{name:"Update pack"});
+  expect(within(cards[1]).getByText(`Update to ${version}. Close Minecraft first.`)).toBeTruthy();
+  fireEvent.click(button);fireEvent.click(button);
+  expect(mocks.apply).toHaveBeenCalledTimes(1);expect(mocks.apply).toHaveBeenCalledWith(two,version);
+  expect((within(cards[0]).getByRole("button",{name:"Update pack"}) as HTMLButtonElement).disabled).toBe(true);
+  await act(async()=>mocks.progress?.({payload:{phase:"downloading",message:"Downloading mods",current:1,total:3}}));
+  expect(screen.getByText("Downloading mods")).toBeTruthy();
+  expect(screen.getByRole("heading",{name:"My packs"})).toBeTruthy();
+  mocks.plan.mockImplementation(async root=>plan(root,version,root===two?0:1));
+  mocks.state.mockResolvedValue(state(version));
+  await act(async()=>pending.resolve({state:state(version),backupPath:"/backup/two",changedPaths:3}));
+  await waitFor(()=>expect(within(screen.getAllByRole("article")[1]).getByText("Up to date")).toBeTruthy());
+  expect(within(screen.getAllByRole("article")[1]).getByRole("button",{name:"Check for updates"})).toBeTruthy();
+  expect(JSON.parse(localStorage.getItem(ACTIVITY_KEY)!)[0].root).toBe(two);
+ });
+ it("offers repair on the card for drift in an already installed version", async () => {
+  const root="/packs/one/.minecraft",version="0.13.15-nstut.4";
+  localStorage.setItem(ROOT_KEY,root);
+  mocks.plan.mockImplementation(async()=>{const result=plan(root,version,1);result.plan.alreadyApplied=true;return result;});
+  mocks.apply.mockReturnValue(deferred().promise);
+  render(<App />);fireEvent.click(await screen.findByRole("button",{name:"Repair pack"}));
+  expect(mocks.apply).toHaveBeenCalledWith(root,version);
+ });
+ it("disables the card update while its checked plan is being refreshed", async () => {
+  vi.useFakeTimers();
+  try {
+   const pending=deferred<TfgPlanResponse>();localStorage.setItem(ROOT_KEY,"/packs/one/.minecraft");
+   mocks.plan.mockResolvedValueOnce(plan(undefined,"0.13.15-nstut.4",1)).mockReturnValueOnce(pending.promise);
+   render(<App />);await act(async()=>{await Promise.resolve();});
+   await act(async()=>{await vi.advanceTimersByTimeAsync(30*60*1000);});
+   const button=screen.getByRole("button",{name:"Update pack"}) as HTMLButtonElement;
+   expect(button.disabled).toBe(true);fireEvent.click(button);expect(mocks.apply).not.toHaveBeenCalled();
+   await act(async()=>pending.resolve(plan()));
+   expect(screen.queryByRole("button",{name:"Update pack"})).toBeNull();
+   expect(screen.getByRole("button",{name:"Check for updates"})).toBeTruthy();
+  } finally {vi.useRealTimers();}
+ });
  it("migrates the old folder, hides setup on the main page and separates searchable mods and settings", async () => {
   localStorage.setItem(ROOT_KEY,"/packs/one/.minecraft"); render(<App />);
   await screen.findByText("Up to date");

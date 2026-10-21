@@ -72,7 +72,8 @@ nav { display: grid; gap: 6px; }
 .packStatus.current .statusDot { background: #86c5a9; }
 .lastChecked { display: block; min-height: 15px; font-size: 10px; margin: 6px 0 20px 13px; color: #7f94a0; }
 .packActions { border-top: 1px solid #2a363e; padding-top: 16px; display: flex; justify-content: space-between; gap: 12px; }
-.packActions .secondary { min-height: 36px; font-size: 11px; padding: 8px 13px; }
+.packActions .secondary, .packActions .primary { min-height: 36px; font-size: 11px; padding: 8px 13px; }
+.cardUpdateHint { margin: -6px 0 16px; font-size: 11px; line-height: 1.5; }
 .backButton { margin-bottom: 20px; }
 .detailHeading { margin-bottom: 24px; }
 .editionBadge { display: inline-block; padding: 5px 9px; margin-left: 8px; border: 1px solid #3a5864; border-radius: 6px; font-size: 11px; color: #9fc2ce; font-weight: 500; vertical-align: middle; letter-spacing: 0; }

@@ -1,5 +1,14 @@
 # Modpack Manager
 
+## Pack card updates (1.0.10)
+
+When a pack has pending changes, its card shows **Update pack** (or **Repair
+pack** for an already-installed version), the checked version and a reminder to
+close Minecraft. Start the update directly from the card; progress and results
+use the same transfer bar and Activity history as the Details page. Buttons are
+disabled during checks and other operations. **Check for updates** returns once
+the installation is current; **Details** remains available throughout.
+
 ## Navigation (1.0.9)
 
 **My packs** shows saved TFG installations with their installed version and update

@@ -294,6 +294,8 @@ export default function App() {
      {!packs.length ? <div className="emptyState"><span className="emptyIcon"><Icon name="packs" /></span><h2>Your first pack starts here</h2><p>Install the complete TFG pack or connect an installation you already use.</p><button className="primary" disabled={busy} onClick={() => startWizard()}>Add your first pack</button></div>
       : <div className="packGrid">{packs.map((pack) => {
        const next = views[rootKey(pack.root)]; const status = packStatus(pack.root); const current = status === "Up to date";
+       const ready = next?.data && !next.error && next.data.plan.items.length > 0 ? next.data : null;
+       const checking = loading.includes(rootKey(pack.root));
        return <article className="packCard" key={rootKey(pack.root)}>
         <div className="packCover"><div className="packMonogram">TFG<span>NsTut edition</span></div><span className="coverTag">Forge · 1.20.1</span></div>
         <div className="packBody"><div className="packTitleRow"><div><h2>TerraFirmaGreg</h2><p>{packLabel(pack.root)} · NsTut</p></div>
@@ -301,7 +303,11 @@ export default function App() {
          <div className="packVersion">Installed <strong>{pack.version ?? "Not recorded yet"}</strong></div>
          <div className={`packStatus ${current ? "current" : ""}`}><span className="statusDot" />{status}</div>
          <small className="lastChecked">{next?.checkedAt ? "Checked " + dateLabel(next.checkedAt) : ""}</small>
-         <div className="packActions"><button className="secondary" disabled={busy || loading.includes(rootKey(pack.root))} onClick={() => void refreshPack(pack.root, false)}>Check for updates</button><button className="textButton" onClick={() => selectPack(pack.root, true)}>Details →</button></div>
+         {ready && <p className="cardUpdateHint">{ready.plan.alreadyApplied ? "Repair" : "Update to"} {ready.patchVersion}. Close Minecraft first.</p>}
+         <div className="packActions">{ready
+          ? <button className="primary" disabled={busy || checking} onClick={() => void apply(pack.root, ready.patchVersion)}><Icon name="download" />{ready.plan.alreadyApplied ? "Repair pack" : "Update pack"}</button>
+          : <button className="secondary" disabled={busy || checking} onClick={() => void refreshPack(pack.root, false)}>Check for updates</button>}
+          <button className="textButton" onClick={() => selectPack(pack.root, true)}>Details →</button></div>
         </div>
        </article>;
       })}</div>}
