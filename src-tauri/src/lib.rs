@@ -1,7 +1,7 @@
 use patch_core::{
     apply_manifest, load_manifest, load_patch_channel, plan_manifest, read_state, resolve_tfg_patch,
     ApplyResult, PatchPlan, PatchProgress, PatchState, ProgressCallback, ResolvedPatchChannel,
-    Target, TfgResolvedMod, plan_client_install, install_client, FreshInstallPlan, FreshInstallResult,
+    Target, TfgResolvedMod, plan_client_install_in_parent, install_client, FreshInstallPlan, FreshInstallResult,
 };
 use serde::Serialize;
 use std::path::PathBuf;
@@ -37,9 +37,9 @@ fn open_folder(root: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn plan_tfg_install(destination: String) -> Result<FreshInstallPlan, String> {
+async fn plan_tfg_install(parent_directory: String) -> Result<FreshInstallPlan, String> {
     let resolved = resolve_tfg_patch().await.map_err(format_error)?;
-    plan_client_install(&resolved.manifest, &PathBuf::from(destination)).map_err(format_error)
+    plan_client_install_in_parent(&resolved.manifest, &PathBuf::from(parent_directory)).map_err(format_error)
 }
 
 #[tauri::command]

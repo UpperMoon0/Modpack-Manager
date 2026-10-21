@@ -39,7 +39,7 @@ handoff remains available in Activity. Manager does not launch Minecraft itself.
 
 ## Fresh client installation (1.0.8)
 
-From **My packs**, choose **Add pack > Install new**. Choose a new or empty
+From **My packs**, choose **Add pack > Install new**. Choose an existing parent
 folder, review the version and location, then **Install pack**. The app resolves
 the latest approved fork release and downloads its complete client base plus all
 pinned upstream and custom mods. No preinstalled TFG pack, CurseForge app or
@@ -50,7 +50,7 @@ The installation includes `instance.cfg`, `mmc-pack.json`, `.minecraft` and
 choose **Add Instance > Import** and select that ZIP. Prism handles the Minecraft
 1.20.1 / Forge 47.4.13 runtime, Java 17 and Minecraft account login. This feature
 installs the pack; it does not replace the game launcher or manage credentials.
-Alternatively, install into a new folder under Prism's `instances` directory and
+Alternatively, select Prism's `instances` directory as the parent folder and
 restart Prism to discover the prepared instance directly. For future updates,
 select the actual playable instance's `.minecraft` folder in Manager. Importing
 the ZIP creates a separate copy, so reselect that imported folder after import.
@@ -276,3 +276,11 @@ client/server update checks. A new base must pass this check before Manager is
 published. Pack promotion must also pass the corresponding check with the
 published Manager before the stable pointer moves. These checks validate planning
 and launcher metadata; fixture tests cover installation and Prism ZIP import.
+
+
+In the desktop Install new wizard, select an existing parent folder, such as your
+Prism Launcher `instances` folder. Manager creates `TerraFirmaGreg-NsTut` inside
+it, or adds a numeric suffix if that name is already taken. The review screen
+shows the exact child destination before downloads begin. Other folders and files
+in the selected parent are preserved. The CLI `install --root` option continues
+to specify the exact new or empty destination rather than a parent folder.

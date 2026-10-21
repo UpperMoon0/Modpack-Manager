@@ -15,4 +15,4 @@ pub use engine::{
 pub use schema::{Artifact, Operation, PatchManifest, Target};
 pub use tfg::{resolve_tfg_patch, TfgResolvedMod, TfgResolvedPatch};
 
-pub use install::{install_client, plan_client_install, FreshInstallPlan, FreshInstallResult};
+pub use install::{install_client, plan_client_install, plan_client_install_in_parent, FreshInstallPlan, FreshInstallResult};
