@@ -1,6 +1,6 @@
 use patch_core::{
-    apply_manifest, install_client, plan_client_install, plan_manifest, Operation, PatchManifest,
-    PatchProgressPhase, Target,
+    apply_manifest, install_client, plan_client_install, plan_client_install_in_parent,
+    plan_manifest, Operation, PatchManifest, PatchProgressPhase, Target,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -225,4 +225,96 @@ fn current_pack_base_supports_fresh_install() {
     assert_eq!(plan.minecraft_version, "1.20.1");
     assert_eq!(plan.forge_version, "47.4.13");
     assert!(!destination.exists());
+}
+
+#[tokio::test]
+async fn desktop_installs_a_child_of_a_populated_parent_preserving_siblings() {
+    let (_source, manifest) = current_base_fixture();
+    let parent = tempfile::tempdir().unwrap();
+    let sibling = parent.path().join("existing-instance");
+    fs::create_dir_all(sibling.join("world")).unwrap();
+    fs::write(sibling.join("world/level.dat"), b"existing world").unwrap();
+    fs::write(parent.path().join("notes.txt"), b"keep notes").unwrap();
+    let plan = plan_client_install_in_parent(&manifest, parent.path()).unwrap();
+    let destination = parent.path().join("TerraFirmaGreg-NsTut");
+    assert_eq!(std::path::Path::new(&plan.destination), destination);
+    assert!(!destination.exists());
+    let result = install_client(&manifest, "fixture.json", &destination, None)
+        .await
+        .unwrap();
+    assert_eq!(std::path::Path::new(&result.instance_path), destination);
+    assert_eq!(
+        fs::read(destination.join(".minecraft/mods/core.jar")).unwrap(),
+        b"core"
+    );
+    assert!(std::path::Path::new(&result.archive_path).is_file());
+    assert_eq!(
+        fs::read(sibling.join("world/level.dat")).unwrap(),
+        b"existing world"
+    );
+    assert_eq!(
+        fs::read(parent.path().join("notes.txt")).unwrap(),
+        b"keep notes"
+    );
+}
+
+#[tokio::test]
+async fn desktop_chooses_an_unused_child_and_keeps_the_reviewed_destination() {
+    let (_source, manifest) = current_base_fixture();
+    let parent = tempfile::tempdir().unwrap();
+    fs::create_dir(parent.path().join("TerraFirmaGreg-NsTut")).unwrap();
+    fs::write(
+        parent.path().join("TerraFirmaGreg-NsTut-2"),
+        b"existing file",
+    )
+    .unwrap();
+    let plan = plan_client_install_in_parent(&manifest, parent.path()).unwrap();
+    let destination = parent.path().join("TerraFirmaGreg-NsTut-3");
+    assert_eq!(std::path::Path::new(&plan.destination), destination);
+    // Someone creates files after review: reject instead of overwriting them
+    // or silently redirecting installation to a different child.
+    fs::create_dir(&destination).unwrap();
+    fs::write(destination.join("user-file"), b"keep").unwrap();
+    assert!(
+        install_client(&manifest, "fixture.json", &destination, None)
+            .await
+            .is_err()
+    );
+    assert_eq!(fs::read(destination.join("user-file")).unwrap(), b"keep");
+    assert_eq!(
+        fs::read(parent.path().join("TerraFirmaGreg-NsTut-2")).unwrap(),
+        b"existing file"
+    );
+    assert_eq!(
+        fs::read_dir(parent.path().join("TerraFirmaGreg-NsTut"))
+            .unwrap()
+            .count(),
+        0
+    );
+    assert!(!parent.path().join("TerraFirmaGreg-NsTut-4").exists());
+}
+
+#[test]
+fn desktop_requires_an_existing_parent_directory() {
+    let (_source, manifest) = current_base_fixture();
+    let parent = tempfile::tempdir().unwrap();
+    assert!(plan_client_install_in_parent(&manifest, &parent.path().join("missing")).is_err());
+    fs::write(parent.path().join("file"), b"file").unwrap();
+    assert!(plan_client_install_in_parent(&manifest, &parent.path().join("file")).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn desktop_skips_broken_child_links_and_rejects_linked_parents() {
+    let (_source, manifest) = current_base_fixture();
+    let parent = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink("missing", parent.path().join("TerraFirmaGreg-NsTut")).unwrap();
+    let plan = plan_client_install_in_parent(&manifest, parent.path()).unwrap();
+    assert_eq!(
+        std::path::Path::new(&plan.destination),
+        parent.path().join("TerraFirmaGreg-NsTut-2")
+    );
+    let linked = parent.path().join("linked");
+    std::os::unix::fs::symlink(parent.path(), &linked).unwrap();
+    assert!(plan_client_install_in_parent(&manifest, &linked).is_err());
 }

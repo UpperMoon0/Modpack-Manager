@@ -60,6 +60,34 @@ fn destination_path(destination: &Path) -> Result<PathBuf> {
     Ok(absolute)
 }
 
+/// Plan a desktop install as a new child of the selected parent folder.
+/// The returned destination is reviewed by the user and passed unchanged to
+/// install_client; never select a different folder after review.
+pub fn plan_client_install_in_parent(
+    manifest: &PatchManifest,
+    parent: &Path,
+) -> Result<FreshInstallPlan> {
+    if !parent.is_dir() {
+        bail!("choose an existing parent folder for the new pack");
+    }
+    for number in 1..=1000 {
+        let name = if number == 1 {
+            "TerraFirmaGreg-NsTut".to_owned()
+        } else {
+            format!("TerraFirmaGreg-NsTut-{number}")
+        };
+        let destination = parent.join(name);
+        match fs::symlink_metadata(&destination) {
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return plan_client_install(manifest, &destination);
+            }
+            Err(error) => return Err(error).context("cannot inspect the new pack folder"),
+        }
+    }
+    bail!("could not find an unused pack folder name; choose a different parent folder")
+}
+
 pub fn plan_client_install(
     manifest: &PatchManifest,
     destination: &Path,

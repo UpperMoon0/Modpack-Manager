@@ -71,7 +71,7 @@ describe("Manager navigation", () => {
  it("migrates the old folder, hides setup on the main page and separates searchable mods and settings", async () => {
   localStorage.setItem(ROOT_KEY,"/packs/one/.minecraft"); render(<App />);
   await screen.findByText("Up to date");
-  expect(screen.queryByLabelText("New installation folder")).toBeNull();expect(screen.queryByText("Simply Speakers")).toBeNull();
+  expect(screen.queryByLabelText("Parent folder")).toBeNull();expect(screen.queryByText("Simply Speakers")).toBeNull();
   fireEvent.click(screen.getByRole("button",{name:"Details →"}));
   fireEvent.click(screen.getByRole("tab",{name:"Mods"}));await screen.findByText("Simply Speakers");
   fireEvent.change(screen.getByRole("textbox",{name:"Search mods"}),{target:{value:"not-a-mod"}});expect(screen.queryByText("Simply Speakers")).toBeNull();expect(screen.getByText("No mods match your search.")).toBeTruthy();
@@ -130,11 +130,12 @@ describe("Manager navigation", () => {
   expect(screen.getAllByRole("article")).toHaveLength(1);
  });
  it("validates a new install in a wizard and passes the reviewed version to installation",async()=>{
-  mocks.installPlan.mockResolvedValue({version:"0.13.12-nstut.1",destination:"/new",artifactCount:304,minecraftVersion:"1.20.1",forgeVersion:"47.4.13"});mocks.install.mockResolvedValue({version:"0.13.12-nstut.1",minecraftRoot:"/new/.minecraft",instancePath:"/new",archivePath:"/new/TFG.zip"});
+  mocks.installPlan.mockResolvedValue({version:"0.13.12-nstut.1",destination:"/new/TerraFirmaGreg-NsTut-2",artifactCount:304,minecraftVersion:"1.20.1",forgeVersion:"47.4.13"});mocks.install.mockResolvedValue({version:"0.13.12-nstut.1",minecraftRoot:"/new/TerraFirmaGreg-NsTut-2/.minecraft",instancePath:"/new/TerraFirmaGreg-NsTut-2",archivePath:"/new/TerraFirmaGreg-NsTut-2/TFG.zip"});
   render(<App />);fireEvent.click(screen.getByRole("button",{name:"Add your first pack"}));fireEvent.click(screen.getByRole("button",{name:/Install new/}));
-  fireEvent.change(screen.getByRole("textbox",{name:"New installation folder"}),{target:{value:"/new"}});fireEvent.click(screen.getByRole("button",{name:"Continue"}));await screen.findByText("Ready to install");
-  fireEvent.click(screen.getByRole("button",{name:"Install pack"}));await screen.findByText("Your pack is ready");expect(mocks.install).toHaveBeenCalledWith("/new","0.13.12-nstut.1");expect(screen.getByText("/new/TFG.zip")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button",{name:"View pack"}));expect(localStorage.getItem(ROOT_KEY)).toBe("/new/.minecraft");
+  fireEvent.change(screen.getByRole("textbox",{name:"Parent folder"}),{target:{value:"/new"}});fireEvent.click(screen.getByRole("button",{name:"Continue"}));await screen.findByText("Ready to install");
+  expect(mocks.installPlan).toHaveBeenCalledWith("/new");expect(screen.getByText("/new/TerraFirmaGreg-NsTut-2")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"Install pack"}));await screen.findByText("Your pack is ready");expect(mocks.install).toHaveBeenCalledWith("/new/TerraFirmaGreg-NsTut-2","0.13.12-nstut.1");expect(screen.getByText("/new/TerraFirmaGreg-NsTut-2/TFG.zip")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"View pack"}));expect(localStorage.getItem(ROOT_KEY)).toBe("/new/TerraFirmaGreg-NsTut-2/.minecraft");
  });
  it("does not register an invalid existing folder",async()=>{
   mocks.plan.mockRejectedValue(new Error("Not a compatible pack"));render(<App />);fireEvent.click(screen.getByRole("button",{name:"Add your first pack"}));fireEvent.click(screen.getByRole("button",{name:/Use existing installation/}));

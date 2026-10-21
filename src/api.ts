@@ -28,8 +28,8 @@ export const tfgApi = {
   openFolder(root: string) {
     return invoke<void>("open_folder", { root });
   },
-  installPlan(destination: string) {
-    return invoke<FreshInstallPlan>("plan_tfg_install", { destination });
+  installPlan(parentDirectory: string) {
+    return invoke<FreshInstallPlan>("plan_tfg_install", { parentDirectory });
   },
   install(destination: string, expectedPatchVersion: string) {
     return invoke<FreshInstallResult>("install_tfg", { destination, expectedPatchVersion });
