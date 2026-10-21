@@ -96,3 +96,46 @@ async fn prepares_matching_overlay_before_base_replaces_it() {
     assert_eq!(fs::read(root.path().join("kubejs/new.js")).unwrap(),data);
     assert!(plan_manifest(&m,root.path(),Target::Server).unwrap().items.is_empty());
 }
+
+#[tokio::test]
+async fn repairs_missing_or_modified_core_after_committed_migration() {
+    for target in [Target::Client, Target::Server] {
+        for missing in [true, false] {
+            let (root, source, m) = fixture(false);
+            apply_manifest(&m, "migration.json", root.path(), target, None).await.unwrap();
+            let core = root.path().join("mods/new-core.jar");
+            if missing { fs::remove_file(&core).unwrap(); }
+            else { fs::write(&core, b"modified core").unwrap(); }
+            // Repair must not download or reapply the completed base migration.
+            fs::remove_file(source.path().join("base.zip")).unwrap();
+            fs::write(root.path().join("kubejs/new.js"), b"user edit after migration").unwrap();
+            let plan = plan_manifest(&m, root.path(), target).unwrap();
+            assert!(plan.already_applied);
+            assert_eq!(plan.items.len(), 1);
+            assert_eq!(plan.items[0].path, "mods/new-core.jar");
+            apply_manifest(&m, "migration.json", root.path(), target, None).await.unwrap();
+            assert_eq!(fs::read(core).unwrap(), b"new-core");
+            assert_eq!(fs::read(root.path().join("kubejs/new.js")).unwrap(), b"user edit after migration");
+            assert_eq!(fs::read(root.path().join("world/level.dat")).unwrap(), b"world data");
+            assert!(plan_manifest(&m, root.path(), target).unwrap().items.is_empty());
+        }
+    }
+}
+
+#[tokio::test]
+async fn damaged_core_still_requires_matching_installation_state_and_marker() {
+    let (root, _source, m) = fixture(false);
+    apply_manifest(&m, "migration.json", root.path(), Target::Client, None).await.unwrap();
+    fs::remove_file(root.path().join("mods/new-core.jar")).unwrap();
+    let state_path = root.path().join(".modpack-manager/state-client.json");
+    let original = fs::read(&state_path).unwrap();
+    for (field, value) in [("manifestId", "other-pack"), ("target", "server")] {
+        let mut state: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        state[field] = json!(value);
+        fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+        assert!(plan_manifest(&m, root.path(), Target::Client).is_err());
+    }
+    fs::write(&state_path, original).unwrap();
+    fs::write(root.path().join(".nstut-tfg-base-12"), b"wrong marker").unwrap();
+    assert!(plan_manifest(&m, root.path(), Target::Client).is_err());
+}

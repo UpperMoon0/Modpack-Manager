@@ -1,5 +1,11 @@
 # Modpack Manager
 
+## Core repair (1.0.11)
+
+Missing or modified managed core JARs can be repaired after a completed base
+migration when the marker and recorded Manager installation match. Failed pack
+checks show **Check unavailable** and can be retried.
+
 ## Pack card updates (1.0.10)
 
 When a pack has pending changes, its card shows **Update pack** (or **Repair
@@ -78,6 +84,9 @@ worlds, identity data and custom files, and carries modified TOML/JSON settings 
 the new defaults. Unsupported modified config formats are retained. A failed update
 restores the original files; an interrupted migration can resume. The completion
 marker is committed only after all upstream mods and overlay operations succeed.
+If the core JAR later goes missing or changes, a matching completion marker and
+recorded Manager installation allow the normal update check to offer a verified
+core repair without repeating the base migration.
 
 GitHub transport and temporary server failures use bounded download retries.
 

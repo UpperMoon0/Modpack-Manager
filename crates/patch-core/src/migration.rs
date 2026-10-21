@@ -1,5 +1,5 @@
 use crate::engine::{ensure_no_symlink_components, ProgressCallback, Transaction};
-use crate::schema::Operation;
+use crate::schema::{Operation, PatchManifest, Target};
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
@@ -60,7 +60,12 @@ fn pending_path(root: &Path, marker: &str) -> std::path::PathBuf {
         .join(format!("{marker}.pending"))
 }
 
-pub(crate) fn needed(operation: &Operation, root: &Path) -> Result<bool> {
+pub(crate) fn needed(
+    operation: &Operation,
+    root: &Path,
+    manifest: &PatchManifest,
+    target: Target,
+) -> Result<bool> {
     let Operation::MigratePack {
         source_file,
         source_sha256,
@@ -76,7 +81,17 @@ pub(crate) fn needed(operation: &Operation, root: &Path) -> Result<bool> {
     ensure_no_symlink_components(root, Path::new(marker))?;
     if root.join(marker).is_file() && fs::read(root.join(marker))? == marker_content.as_bytes() {
         if !matches_hash(root, target_file, target_sha256)? {
-            bail!("base marker exists but target core artifact does not match");
+            // A committed migration must not run again just because a managed
+            // core was removed or modified. The normal install operation repairs
+            // it with verified bytes. Require recorded ownership as well as the
+            // marker so an unknown installation cannot bypass base validation.
+            let state_path = root.join(".modpack-manager")
+                .join(format!("state-{}.json", target.as_str()));
+            ensure_no_symlink_components(root, state_path.strip_prefix(root)?)?;
+            let recorded = crate::engine::read_state(root, target)?;
+            if !recorded.is_some_and(|state| state.manifest_id == manifest.id && state.target == target) {
+                bail!("base marker exists but target core artifact does not match; no matching Manager installation state was found");
+            }
         }
         return Ok(false);
     }
