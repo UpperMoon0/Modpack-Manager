@@ -54,7 +54,7 @@ for target in metadata['targets'].values():
         data = urllib.request.urlopen(download['url'], timeout=120).read()
         assert hashlib.sha256(data).hexdigest() == target['targetSha256']
         path.write_bytes(data)
-    (root / target['marker']).write_text(target['markerContent'])
+    (root / target['marker']).write_bytes(target['markerContent'].encode('utf-8'))
 PY
 fi
 
