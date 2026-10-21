@@ -1,5 +1,11 @@
 # Modpack Manager
 
+## Core repair (1.0.11)
+
+Missing or modified managed core JARs can be repaired after a completed base
+migration when the marker and recorded Manager installation match. Failed pack
+checks show **Check unavailable** and can be retried.
+
 ## Pack card updates (1.0.10)
 
 When a pack has pending changes, its card shows **Update pack** (or **Repair
