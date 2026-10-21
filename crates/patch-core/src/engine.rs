@@ -117,7 +117,7 @@ pub fn plan_manifest(manifest: &PatchManifest, root: &Path, target: Target) -> R
     for operation in &selected {
         match operation {
             Operation::MigratePack { marker, .. } => {
-                if crate::migration::needed(operation, root)? {
+                if crate::migration::needed(operation, root, manifest, target)? {
                     items.push(PlanItem { kind: "migratePack".into(), path: marker.clone(), detail: "Upgrade the complete upstream base while preserving world and custom settings".into() });
                 }
             }
@@ -381,13 +381,13 @@ async fn apply_manifest_inner(
     let mut migrating = false;
     for operation in &selected {
         if matches!(operation, Operation::MigratePack { .. }) {
-            migrating |= fresh || crate::migration::needed(operation, root)?;
+            migrating |= fresh || crate::migration::needed(operation, root, manifest, target)?;
         }
     }
     let mut artifact_ids = HashSet::new();
     for operation in &selected {
         if matches!(operation, Operation::MigratePack { .. })
-            && !(fresh || crate::migration::needed(operation, root)?)
+            && !(fresh || crate::migration::needed(operation, root, manifest, target)?)
         {
             continue;
         }
@@ -461,7 +461,7 @@ async fn apply_manifest_inner(
 
             match operation {
                 Operation::MigratePack { artifact, .. } => {
-                    if fresh || crate::migration::needed(operation, root)? {
+                    if fresh || crate::migration::needed(operation, root, manifest, target)? {
                         let source = cached_artifacts
                             .get(artifact)
                             .context("migration archive was not prepared")?;
@@ -776,7 +776,7 @@ fn validate_root(root: &Path, manifest: &PatchManifest, target: Target) -> Resul
         ensure_no_symlink_components(root, relative)?;
         if !root.join(relative).exists() {
             if let Some(operation) = manifest.operations.iter().find(|op| matches!(op, Operation::MigratePack { marker, .. } if marker == required && op.applies_to(target))) {
-                crate::migration::needed(operation, root)?;
+                crate::migration::needed(operation, root, manifest, target)?;
                 continue;
             }
             bail!(

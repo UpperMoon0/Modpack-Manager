@@ -141,3 +141,15 @@ describe("Manager navigation", () => {
   fireEvent.change(screen.getByRole("textbox",{name:"Game folder"}),{target:{value:"/wrong"}});fireEvent.click(screen.getByRole("button",{name:"Add installation"}));await screen.findByText("Not a compatible pack");expect(JSON.parse(localStorage.getItem(PACKS_KEY)!)).toEqual([]);expect(localStorage.getItem(ROOT_KEY)).toBeNull();
  });
 });
+
+it("shows a finished failure state when checking the pack fails", async () => {
+ const root="/packs/one/.minecraft";
+ localStorage.setItem(ROOT_KEY,root);localStorage.setItem(PACKS_KEY,JSON.stringify([{root}]));
+ mocks.plan.mockRejectedValue(new Error("base marker exists but target core artifact does not match"));
+ render(<App />);
+ await screen.findByText("Check unavailable");
+ fireEvent.click(screen.getByRole("button",{name:"Details →"}));
+ await screen.findByText("Check unavailable", {selector:"strong"});
+ expect(screen.queryByText("Checking…")).toBeNull();
+ expect((screen.getByRole("button",{name:"Check for updates"}) as HTMLButtonElement).disabled).toBe(false);
+});

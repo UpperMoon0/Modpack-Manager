@@ -78,6 +78,9 @@ worlds, identity data and custom files, and carries modified TOML/JSON settings 
 the new defaults. Unsupported modified config formats are retained. A failed update
 restores the original files; an interrupted migration can resume. The completion
 marker is committed only after all upstream mods and overlay operations succeed.
+If the core JAR later goes missing or changes, a matching completion marker and
+recorded Manager installation allow the normal update check to offer a verified
+core repair without repeating the base migration.
 
 GitHub transport and temporary server failures use bounded download retries.
 
