@@ -23,6 +23,22 @@ rm -rf "$ROOT"
 git clone --quiet --depth 1 --branch "$source_ref" https://github.com/UpperMoon0/TFG-Modern-Fork.git "$ROOT"
 mkdir -p "$ROOT/mods"
 
+# Exercise Install new against the same immutable release used by the update
+# checks. Version/loader incompatibility must block Manager CI and publication.
+install_plan="$ROOT/fresh-install-plan.json"
+MODPACK_MANAGER_TFG_RELEASE="$release_snapshot" cargo run --quiet -p modpackctl -- install --tfg --root "$ROOT/fresh-instance" --dry-run --json > "$install_plan"
+"$PYTHON" - "$ROOT" <<'PY'
+import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+plan = json.loads((root / 'fresh-install-plan.json').read_text(encoding='utf-8'))
+release = json.loads((root / 'nstut/release.json').read_text(encoding='utf-8'))
+lock = json.loads((root / 'pakku-lock.json').read_text(encoding='utf-8'))
+assert plan['version'] == release['overlayVersion'], 'fresh install resolved the wrong release'
+assert lock['mc_versions'] == [plan['minecraftVersion']], 'fresh install Minecraft version differs from the pack'
+assert lock['loaders'] == {'forge': plan['forgeVersion']}, 'fresh install Forge version differs from the pack'
+assert not (root / 'fresh-instance').exists(), 'dry run must leave the destination untouched'
+PY
+
 # This is a profile-resolution fixture, not an installed game. Seed the exact
 # target-core/marker guard for cross-base releases; migration behaviour is tested
 # separately against installed-root fixtures.
@@ -30,7 +46,7 @@ if [[ -f "$ROOT/nstut/base-migration.json" ]]; then
   "$PYTHON" - "$ROOT" <<'PY'
 import hashlib, json, pathlib, sys, urllib.request
 root = pathlib.Path(sys.argv[1])
-metadata = json.loads((root / 'nstut/base-migration.json').read_text())
+metadata = json.loads((root / 'nstut/base-migration.json').read_text(encoding='utf-8'))
 for target in metadata['targets'].values():
     download = next(x for x in target['downloads'] if x['path'] == target['targetFile'])
     path = root / target['targetFile']
@@ -45,4 +61,4 @@ fi
 MODPACK_MANAGER_TFG_RELEASE="$release_snapshot" cargo run --quiet -p modpackctl -- plan --tfg --target client --root "$ROOT" --json > /dev/null
 MODPACK_MANAGER_TFG_RELEASE="$release_snapshot" cargo run --quiet -p modpackctl -- plan --tfg --target server --root "$ROOT" --json > /dev/null
 
-echo "TFG promotion smoke passed for $source_ref"
+echo "TFG promotion smoke passed for $source_ref (fresh install, client update, server update)"

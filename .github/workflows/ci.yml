@@ -47,7 +47,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p patch-core -p modpackctl
       - run: cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
-      - name: Resolve promoted TFG fork profile
+      - name: Validate promoted TFG fresh install and updates
         run: scripts/check-tfg-promotion.sh "$RUNNER_TEMP/tfg-smoke"
 
   tauri-windows:

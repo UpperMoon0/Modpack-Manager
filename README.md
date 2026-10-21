@@ -63,7 +63,7 @@ leave a `.tfg-install-*` temporary folder; the selected destination is not
 published until completion. Allow disk space for downloaded artifacts, unpacked
 pack files and the import ZIP. Staging cache and backups are discarded after
 success; the ZIP excludes caches, locks and backups while retaining update state.
-Fresh install currently supports the published 0.13.12 base; a future base needs
+Fresh install supports the 0.13.12 and 0.13.15 bases; a future base needs
 reviewed launcher version metadata before this path accepts it.
 
 The CLI provides the same client installation flow:
@@ -267,3 +267,12 @@ Linux bundle targets are configured in `src-tauri/tauri.linux.conf.json`. CI bui
     src-tauri/           Tauri commands and updater plugins
     scripts/             server wrapper + release helpers
     examples/            generic channel/manifest examples
+
+
+Fresh-install compatibility is a release requirement. Manager CI and release
+validation run `install --tfg --dry-run` against the promoted immutable pack and
+compare Minecraft/Forge versions with its `pakku-lock.json`, in addition to the
+client/server update checks. A new base must pass this check before Manager is
+published. Pack promotion must also pass the corresponding check with the
+published Manager before the stable pointer moves. These checks validate planning
+and launcher metadata; fixture tests cover installation and Prism ZIP import.
