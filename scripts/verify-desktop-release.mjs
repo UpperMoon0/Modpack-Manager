@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 function keyId(encoded, label) {
@@ -37,6 +38,34 @@ export function verifyDesktopRelease(tag, manifest, assets, pubkey) {
   assert.ok([...names].some((name) => name.endsWith(".deb")), "Missing Linux Debian installer");
 }
 
+export function verifyChecksumFiles(assets, checksumFiles) {
+  const byName = new Map(assets.map((asset) => [asset.name, asset]));
+  const groups = [
+    ["SHA256SUMS-windows.txt", (name) => /\.(exe|msi)$/i.test(name)],
+    ["SHA256SUMS-linux.txt", (name) => /\.(AppImage|deb)$/.test(name)],
+    ["modpackctl-linux-x86_64.tar.gz.sha256", (name) => name === "modpackctl-linux-x86_64.tar.gz"]
+  ];
+  for (const [checksumName, includes] of groups) {
+    const contents = checksumFiles[checksumName];
+    assert.equal(typeof contents, "string", `Missing checksum contents: ${checksumName}`);
+    const covered = new Set();
+    for (const line of contents.trim().split(/\r?\n/)) {
+      const match = /^([0-9a-fA-F]{64}) [ *](.+)$/.exec(line);
+      assert.ok(match, `Invalid checksum line in ${checksumName}`);
+      const [, hash, name] = match;
+      assert.ok(includes(name) && byName.has(name), `Unknown checksum asset: ${name}`);
+      assert.ok(!covered.has(name), `Duplicate checksum asset: ${name}`);
+      covered.add(name);
+      const digest = byName.get(name).digest;
+      if (digest) assert.equal(`sha256:${hash.toLowerCase()}`, digest,
+        `Checksum does not match uploaded asset digest: ${name}`);
+    }
+    for (const name of byName.keys()) {
+      if (includes(name)) assert.ok(covered.has(name), `Missing checksum for asset: ${name}`);
+    }
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [tag, manifestPath, assetsPath] = process.argv.slice(2);
   assert.ok(tag && manifestPath && assetsPath, "Usage: verify-desktop-release.mjs TAG LATEST_JSON ASSETS_JSON");
@@ -44,5 +73,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const { assets } = JSON.parse(fs.readFileSync(assetsPath, "utf8"));
   const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
   verifyDesktopRelease(tag, manifest, assets, config.plugins.updater.pubkey);
-  console.log("Windows and Linux updater entries and release assets verified");
+  const checksumFiles = Object.fromEntries([
+    "SHA256SUMS-windows.txt", "SHA256SUMS-linux.txt", "modpackctl-linux-x86_64.tar.gz.sha256"
+  ].map((name) => [name, fs.readFileSync(path.join(path.dirname(manifestPath), name), "utf8")]));
+  verifyChecksumFiles(assets, checksumFiles);
+  console.log("Windows and Linux updater entries, release assets and checksums verified");
 }

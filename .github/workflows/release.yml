@@ -263,15 +263,9 @@ jobs:
           TAG: ${{ needs.resolve-version.outputs.tag }}
         run: |
           $ErrorActionPreference = "Stop"
-          $bundles = Get-ChildItem -LiteralPath target\release\bundle -Recurse -File |
-            Where-Object { $_.Extension -in @(".exe", ".msi") } |
-            Sort-Object Name
-          $lines = foreach ($bundle in $bundles) {
-            $hash = (Get-FileHash -LiteralPath $bundle.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($bundle.Name)"
-          }
           $checksumPath = Join-Path $env:RUNNER_TEMP "SHA256SUMS-windows.txt"
-          [IO.File]::WriteAllLines($checksumPath, $lines, [Text.UTF8Encoding]::new($false))
+          node scripts/generate-windows-checksums.mjs target/release/bundle "$checksumPath"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           gh release upload "$env:TAG" "$checksumPath" --clobber
 
   linux-client:
@@ -364,7 +358,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.resolve-version.outputs.tag }}
         run: |
-          gh release download "$TAG" --pattern latest.json --dir "$RUNNER_TEMP/updater"
+          gh release download "$TAG" --pattern latest.json --pattern 'SHA256SUMS-*.txt' \
+            --pattern modpackctl-linux-x86_64.tar.gz.sha256 --dir "$RUNNER_TEMP/updater"
           gh release view "$TAG" --json assets > "$RUNNER_TEMP/release-assets.json"
           node scripts/verify-desktop-release.mjs "$TAG" "$RUNNER_TEMP/updater/latest.json" "$RUNNER_TEMP/release-assets.json"
       - name: Publish complete verified release
