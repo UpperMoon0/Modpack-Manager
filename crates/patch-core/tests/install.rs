@@ -29,58 +29,76 @@ fn fixture(bad_payload: bool) -> (tempfile::TempDir, PatchManifest) {
     (source, m)
 }
 
+fn current_base_fixture() -> (tempfile::TempDir, PatchManifest) {
+    let (_source, mut manifest) = fixture(false);
+    manifest.version = "0.13.15-nstut.5".into();
+    manifest
+        .required_paths
+        .retain(|path| !path.starts_with(".nstut-tfg-base-"));
+    manifest
+        .required_paths
+        .push(".nstut-tfg-base-0.13.15".into());
+    for operation in &mut manifest.operations {
+        if let Operation::MigratePack { marker, .. } = operation {
+            *marker = ".nstut-tfg-base-0.13.15".into();
+        }
+    }
+    (_source, manifest)
+}
+
 #[tokio::test]
 async fn installs_empty_client_and_exports_a_complete_updateable_prism_instance() {
-    let (_source, m) = fixture(false);
-    let parent = tempfile::tempdir().unwrap();
-    let dest = parent.path().join("fresh");
-    let result = install_client(&m, "test.json", &dest, None).await.unwrap();
-    let root = std::path::Path::new(&result.minecraft_root);
-    assert_eq!(fs::read(root.join("mods/core.jar")).unwrap(), b"core");
-    assert!(!root.join("mods/old-core.jar").exists());
-    assert_eq!(
-        fs::read(root.join("config/default.txt")).unwrap(),
-        b"new pack defaults"
-    );
-    assert!(plan_manifest(&m, root, Target::Client)
-        .unwrap()
-        .items
-        .is_empty());
-    assert!(!root.join(".modpack-manager/cache").exists());
-    assert!(!root.join(".modpack-manager/backups").exists());
-    let meta: serde_json::Value =
-        serde_json::from_slice(&fs::read(dest.join("mmc-pack.json")).unwrap()).unwrap();
-    assert_eq!(meta["components"][0]["version"], "1.20.1");
-    assert_eq!(meta["components"][1]["version"], "47.4.13");
-    let mut zip = ZipArchive::new(fs::File::open(result.archive_path).unwrap()).unwrap();
-    assert!(zip.by_name("instance.cfg").is_ok());
-    assert!(zip.by_name("mmc-pack.json").is_ok());
-    let imported = parent.path().join("imported");
-    fs::create_dir(&imported).unwrap();
-    zip.extract(&imported).unwrap();
-    assert!(
-        plan_manifest(&m, &imported.join(".minecraft"), Target::Client)
+    for (_source, m) in [fixture(false), current_base_fixture()] {
+        let parent = tempfile::tempdir().unwrap();
+        let dest = parent.path().join("fresh");
+        let result = install_client(&m, "test.json", &dest, None).await.unwrap();
+        let root = std::path::Path::new(&result.minecraft_root);
+        assert_eq!(fs::read(root.join("mods/core.jar")).unwrap(), b"core");
+        assert!(!root.join("mods/old-core.jar").exists());
+        assert_eq!(
+            fs::read(root.join("config/default.txt")).unwrap(),
+            b"new pack defaults"
+        );
+        assert!(plan_manifest(&m, root, Target::Client)
             .unwrap()
             .items
-            .is_empty()
-    );
-    let names: Vec<_> = zip.file_names().collect();
-    assert!(!names
-        .iter()
-        .any(|n| n.contains("cache/") || n.contains("backups/") || n.ends_with(".zip")));
-    assert_eq!(
-        apply_manifest(
-            &m,
-            "test.json",
-            &imported.join(".minecraft"),
-            Target::Client,
-            None
-        )
-        .await
-        .unwrap()
-        .changed_paths,
-        0
-    );
+            .is_empty());
+        assert!(!root.join(".modpack-manager/cache").exists());
+        assert!(!root.join(".modpack-manager/backups").exists());
+        let meta: serde_json::Value =
+            serde_json::from_slice(&fs::read(dest.join("mmc-pack.json")).unwrap()).unwrap();
+        assert_eq!(meta["components"][0]["version"], "1.20.1");
+        assert_eq!(meta["components"][1]["version"], "47.4.13");
+        let mut zip = ZipArchive::new(fs::File::open(result.archive_path).unwrap()).unwrap();
+        assert!(zip.by_name("instance.cfg").is_ok());
+        assert!(zip.by_name("mmc-pack.json").is_ok());
+        let imported = parent.path().join("imported");
+        fs::create_dir(&imported).unwrap();
+        zip.extract(&imported).unwrap();
+        assert!(
+            plan_manifest(&m, &imported.join(".minecraft"), Target::Client)
+                .unwrap()
+                .items
+                .is_empty()
+        );
+        let names: Vec<_> = zip.file_names().collect();
+        assert!(!names
+            .iter()
+            .any(|n| n.contains("cache/") || n.contains("backups/") || n.ends_with(".zip")));
+        assert_eq!(
+            apply_manifest(
+                &m,
+                "test.json",
+                &imported.join(".minecraft"),
+                Target::Client,
+                None
+            )
+            .await
+            .unwrap()
+            .changed_paths,
+            0
+        );
+    }
 }
 
 #[tokio::test]
@@ -145,6 +163,14 @@ fn rejects_overlay_only_unknown_bases_and_missing_parent() {
     assert!(plan_client_install(&m, &parent.path().join("missing/child")).is_err());
     m.version = "0.13.10-nstut.34".into();
     assert!(plan_client_install(&m, &parent.path().join("new")).is_err());
+    for version in [
+        "0.13.16-nstut.1",
+        "0.14.0-nstut.1",
+        "0.13.15-nstut.1\nInjected=true",
+    ] {
+        m.version = version.into();
+        assert!(plan_client_install(&m, &parent.path().join("new")).is_err());
+    }
     m.version = "0.13.12-nstut.1\nInjected=true".into();
     assert!(plan_client_install(&m, &parent.path().join("new")).is_err());
     m.version = "0.13.12-nstut.1".into();
@@ -173,7 +199,9 @@ async fn rejects_non_utf8_destination_without_publishing_to_a_different_path() {
 
     let (_source, m) = fixture(false);
     let parent = tempfile::tempdir().unwrap();
-    let dest = parent.path().join(OsString::from_vec(b"fresh-\xff".to_vec()));
+    let dest = parent
+        .path()
+        .join(OsString::from_vec(b"fresh-\xff".to_vec()));
     fs::create_dir(&dest).unwrap();
     let replacement = parent.path().join("fresh-\u{fffd}");
     let error = install_client(&m, "test.json", &dest, None)
@@ -184,4 +212,17 @@ async fn rejects_non_utf8_destination_without_publishing_to_a_different_path() {
     assert!(!replacement.exists());
     assert_eq!(fs::read_dir(parent.path()).unwrap().count(), 1);
     assert!(plan_client_install(&m, &dest.join("child")).is_err());
+}
+
+#[test]
+fn current_pack_base_supports_fresh_install() {
+    let (_source, manifest) = current_base_fixture();
+    let parent = tempfile::tempdir().unwrap();
+    let destination = parent.path().join("fresh");
+    let plan = plan_client_install(&manifest, &destination)
+        .expect("the released 0.13.15 pack must support Install new");
+    assert_eq!(plan.version, manifest.version);
+    assert_eq!(plan.minecraft_version, "1.20.1");
+    assert_eq!(plan.forge_version, "47.4.13");
+    assert!(!destination.exists());
 }

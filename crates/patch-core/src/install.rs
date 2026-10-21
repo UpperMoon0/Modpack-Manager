@@ -67,7 +67,9 @@ pub fn plan_client_install(
     validate_manifest(manifest)?;
     // Loader metadata is pinned to this supported upstream base. Reject future
     // bases until their launcher requirements have been reviewed explicitly.
-    if !manifest.version.starts_with("0.13.12-nstut.")
+    if !["0.13.12-nstut.", "0.13.15-nstut."]
+        .iter()
+        .any(|base| manifest.version.starts_with(base))
         || !manifest
             .version
             .chars()
