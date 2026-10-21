@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { verifyDesktopRelease } from "./verify-desktop-release.mjs";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { generateWindowsChecksums } from "./generate-windows-checksums.mjs";
+import { verifyDesktopRelease, verifyChecksumFiles } from "./verify-desktop-release.mjs";
 
 function fixture() {
   const payload = Buffer.alloc(74, 1).toString("base64");
@@ -54,3 +59,56 @@ for (const name of ["manager.AppImage", "manager.AppImage.sig", "manager.deb",
       assets.filter((asset) => asset.name !== name), pubkey), /Missing/);
   });
 }
+
+function checksumFixture() {
+  const names = ["Modpack.Manager_1.2.3_x64-setup.exe", "Modpack.Manager_1.2.3_x64_en-US.msi",
+    "manager.AppImage", "manager.deb", "modpackctl-linux-x86_64.tar.gz"];
+  const assets = names.map((name) => ({ name,
+    digest: `sha256:${createHash("sha256").update(`bytes:${name}`).digest("hex")}` }));
+  const lines = (includes) => assets.filter(({ name }) => includes(name))
+    .map(({ name, digest }) => `${digest.slice(7)}  ${name}\n`).join("");
+  const checksums = {
+    "SHA256SUMS-windows.txt": lines((name) => /\.(exe|msi)$/.test(name)),
+    "SHA256SUMS-linux.txt": lines((name) => /\.(AppImage|deb)$/.test(name)),
+    "modpackctl-linux-x86_64.tar.gz.sha256": lines((name) => name.endsWith(".tar.gz"))
+  };
+  return { assets, checksums };
+}
+
+test("Windows checksum generation names uploaded MSI and EXE assets and passes verification", (t) => {
+  const { assets, checksums } = checksumFixture();
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "manager-checksums-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const windows = assets.filter(({ name }) => /\.(exe|msi)$/.test(name));
+  for (const { name } of windows) {
+    const bundleDirectory = path.join(directory, path.extname(name).slice(1));
+    fs.mkdirSync(bundleDirectory);
+    const bundleName = name.replace("Modpack.Manager", "Modpack Manager");
+    fs.writeFileSync(path.join(bundleDirectory, bundleName), `bytes:${name}`);
+    fs.writeFileSync(path.join(bundleDirectory, `${bundleName}.sig`), "ignored signature");
+  }
+  checksums["SHA256SUMS-windows.txt"] = generateWindowsChecksums(directory);
+  assert.deepEqual(checksums["SHA256SUMS-windows.txt"].trim().split("\n")
+    .map((line) => line.slice(66)).sort(), windows.map(({ name }) => name).sort());
+  verifyChecksumFiles(assets, checksums);
+});
+
+test("checksum verifier rejects original bundle names with spaces instead of uploaded names", () => {
+  const { assets, checksums } = checksumFixture();
+  checksums["SHA256SUMS-windows.txt"] = checksums["SHA256SUMS-windows.txt"]
+    .replaceAll("Modpack.Manager", "Modpack Manager");
+  assert.throws(() => verifyChecksumFiles(assets, checksums), /Unknown checksum asset/);
+});
+
+test("checksum verifier requires every uploaded Windows installer", () => {
+  const { assets, checksums } = checksumFixture();
+  checksums["SHA256SUMS-windows.txt"] = checksums["SHA256SUMS-windows.txt"]
+    .split("\n").filter((line) => !line.endsWith(".exe")).join("\n");
+  assert.throws(() => verifyChecksumFiles(assets, checksums), /Missing checksum for asset: .*\.exe/);
+});
+
+test("checksum verifier compares checksums with uploaded asset digests", () => {
+  const { assets, checksums } = checksumFixture();
+  assets[0].digest = `sha256:${"0".repeat(64)}`;
+  assert.throws(() => verifyChecksumFiles(assets, checksums), /does not match uploaded asset digest/);
+});
