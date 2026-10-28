@@ -14,7 +14,7 @@ import type { FreshInstallPlan, FreshInstallResult, PatchProgress, PatchState, T
 type Page = "packs" | "activity" | "settings" | "details";
 type Tab = "overview" | "mods" | "history";
 type WizardStep = "choose" | "existing" | "location" | "review" | "installing" | "finish";
-interface PackView { data?: TfgPlanResponse; state?: PatchState | null; checkedAt?: string; error?: string }
+interface PackView { data?: TfgPlanResponse; state?: PatchState | null; checkedAt?: string; error?: string; verifying?: boolean }
 const POLL_INTERVAL = 30 * 60 * 1000;
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 const dateLabel = (value?: string | null) => value ? new Date(value).toLocaleString() : "Not checked yet";
@@ -151,10 +151,14 @@ export default function App() {
  }
  function finishOperation() { operationRef.current = null; setOperation(null); setProgress(null); }
  async function apply(root: string, expectedVersion: string) {
+  if (loading.includes(rootKey(root))) return;
   if (!beginOperation(root, "Updating TFG")) return;
   try {
    const result = await tfgApi.apply(root, expectedVersion);
    remember(root, result.state);
+   // The completed plan describes the old files. Only a fresh check can offer
+   // another update or repair, or confirm that the installation is current.
+   setViews((previous) => ({ ...previous, [rootKey(root)]: { state: result.state, verifying: true } }));
    log(root, `Updated to ${result.state.manifestVersion}`, "success", `${result.changedPaths} files changed.`, result.backupPath);
   } catch (cause) {
    const message = errorMessage(cause);
@@ -254,8 +258,9 @@ export default function App() {
  }
  function packStatus(root: string) {
   if (operation && rootKey(operation.root) === rootKey(root)) return operation.title;
-  if (loading.includes(rootKey(root))) return "Checking…";
   const next = views[rootKey(root)];
+  if (next?.verifying) return "Verifying installation…";
+  if (loading.includes(rootKey(root))) return "Checking…";
   if (next?.error) return "Check unavailable";
   if (!next?.data) return "Not checked yet";
   if (!next.data.plan.items.length) return "Up to date";
@@ -318,9 +323,9 @@ export default function App() {
      <div className="tabs" role="tablist" aria-label="Pack details">{(["overview", "mods", "history"] as const).map((next) => <button role="tab" id={`tab-${next}`} aria-controls={`panel-${next}`} aria-selected={tab === next} className={tab === next ? "active" : ""} key={next} onClick={() => setTab(next)}>{next === "overview" ? "Overview" : next === "mods" ? "Mods" : "Update history"}</button>)}</div>
      <section id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`}>
       {tab === "overview" && <div className="detailStack">
-       <div className="panel updatePanel"><div className="sectionHeading"><h2>{tfg?.plan.items.length ? (tfg.plan.alreadyApplied ? "Repair this installation" : "An update is ready") : "Pack updates"}</h2><button className="secondary" disabled={busy || loading.includes(rootKey(selectedRoot))} onClick={() => void refreshPack(selectedRoot, false)}>Check for updates</button></div>
+       <div className="panel updatePanel"><div className="sectionHeading"><h2>{view?.verifying ? "Verifying installation…" : tfg?.plan.items.length ? (tfg.plan.alreadyApplied ? "Repair this installation" : "An update is ready") : "Pack updates"}</h2><button className="secondary" disabled={busy || loading.includes(rootKey(selectedRoot))} onClick={() => void refreshPack(selectedRoot, false)}>Check for updates</button></div>
         <div className="versionPair"><div><small>Installed version</small><strong>{selectedPack.version ?? "Not recorded yet"}</strong></div><span>→</span><div><small>Latest version</small><strong>{tfg?.patchVersion ?? (view?.error ? "Check unavailable" : "Checking…")}</strong></div></div>
-        {view?.error ? <div className="notice error">{view.error}</div> : tfg && (!tfg.plan.items.length ? <p className="upToDate"><Icon name="check" />Your pack is up to date.</p> : <><p>{tfg.plan.items.length} changes are ready. Close Minecraft before updating.</p><button className="primary" disabled={busy} onClick={() => void apply(selectedRoot, tfg.patchVersion)}><Icon name="download" />{tfg.plan.alreadyApplied ? "Repair pack" : "Update pack"}</button></>)}
+        {view?.error ? <div className="notice error">{view.error}</div> : view?.verifying ? <p role="status">The update finished. Checking installed files before showing available changes.</p> : tfg && (!tfg.plan.items.length ? <p className="upToDate"><Icon name="check" />Your pack is up to date.</p> : <><p>{tfg.plan.items.length} changes are ready. Close Minecraft before updating.</p><button className="primary" disabled={busy || loading.includes(rootKey(selectedRoot))} onClick={() => void apply(selectedRoot, tfg.patchVersion)}><Icon name="download" />{tfg.plan.alreadyApplied ? "Repair pack" : "Update pack"}</button></>)}
         {tfg?.plan.warnings.map((warning) => <div className="notice warning" key={warning}>{warning}</div>)}
         {Boolean(tfg?.plan.items.length) && <details className="updateDetails"><summary>View update details</summary><div className="operations">{tfg?.plan.items.map((item, index) => <div key={index}><strong>{item.kind === "migratePack" ? "Upgrade base pack" : item.kind}</strong><code>{item.path}</code><p>{item.detail}</p></div>)}</div></details>}
        </div>
