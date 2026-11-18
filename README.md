@@ -96,6 +96,9 @@ A Tauri + React + Rust updater for maintaining the NsTut TFG Forge 1.20.1 client
 
 The desktop client asks only for the TFG modpack folder. TFG policy is authored in the UpperMoon0/TFG-Modern-Fork fork. Modpack Manager reads the nstut/stable release pointer, cross-checks it against release.json stored in the immutable tag, then consumes that tag's generated manifest and managed-mod metadata.
 
+Run `npm run test:release` when changing desktop release metadata. It checks
+that the updater manifest names the expected installers and signing key.
+
 Managed mods:
 
 | Mod | Source | Client | Server |
