@@ -298,3 +298,7 @@ Windows package; no release signing key or publishing permission is needed.
 CI results must be traced to the original source SHA and authoritative Jenkins
 commit-status issuer rather than any release-publishing workflow.
 
+A signed owner-PR Jenkins canary also verifies the protected Windows MSI ICE
+broker against the exact GitHub merge tree; GitHub Actions are not run.
+
+
