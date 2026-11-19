@@ -295,4 +295,6 @@ install/update smoke tests, and unsigned Linux and Windows Tauri installers.
 Linux AppImage/DEB and Windows NSIS/MSI packages must be bound to one exact
 source commit. Protected WiX ICE and read-only installer consumers verify the
 Windows package; no release signing key or publishing permission is needed.
+CI results must be traced to the original source SHA and authoritative Jenkins
+commit-status issuer rather than any release-publishing workflow.
 
