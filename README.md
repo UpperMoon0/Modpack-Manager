@@ -287,3 +287,18 @@ it, or adds a numeric suffix if that name is already taken. The review screen
 shows the exact child destination before downloads begin. Other folders and files
 in the selected parent are preserved. The CLI `install --root` option continues
 to specify the exact new or empty destination rather than a parent folder.
+
+## Jenkins CI verification
+
+CI validates the Node 22 frontend, Rust tests and Clippy, promoted TFG
+install/update smoke tests, and unsigned Linux and Windows Tauri installers.
+Linux AppImage/DEB and Windows NSIS/MSI packages must be bound to one exact
+source commit. Protected WiX ICE and read-only installer consumers verify the
+Windows package; no release signing key or publishing permission is needed.
+CI results must be traced to the original source SHA and authoritative Jenkins
+commit-status issuer rather than any release-publishing workflow.
+
+A signed owner-PR Jenkins canary also verifies the protected Windows MSI ICE
+broker against the exact GitHub merge tree; GitHub Actions are not run.
+
+
