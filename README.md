@@ -287,3 +287,16 @@ it, or adds a numeric suffix if that name is already taken. The review screen
 shows the exact child destination before downloads begin. Other folders and files
 in the selected parent are preserved. The CLI `install --root` option continues
 to specify the exact new or empty destination rather than a parent folder.
+
+## CI verification contract
+
+Changes to the Manager are validated independently of release publishing. CI runs
+frontend and release-contract tests, the production frontend build, Rust tests
+and Clippy, the promoted TFG installation smoke test, and Linux/Windows Tauri
+installer builds. Linux CI produces an AppImage and a Debian package; native
+Windows CI produces NSIS and MSI installers. The MSI must pass full Windows
+Installer ICE validation, and artifact checks must bind the packages to the
+exact tested source revision.
+
+CI never requires the updater signing key, Authenticode credentials, or permission
+to publish a release. Release signing and publication remain separate operations.
