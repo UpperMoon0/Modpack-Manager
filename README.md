@@ -300,3 +300,7 @@ exact tested source revision.
 
 CI never requires the updater signing key, Authenticode credentials, or permission
 to publish a release. Release signing and publication remain separate operations.
+
+Installer CI outputs are unsigned test packages, not release assets. Their
+consumer checks must validate the archived bytes without installing them or
+modifying the operating system.
