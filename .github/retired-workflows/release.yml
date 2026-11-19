@@ -1,3 +1,8 @@
+# Archived, non-executable GitHub Actions release workflow (KAN-68, 2026-11-19).
+# GitHub-hosted Actions cannot run on this account. Jenkins is the sole intended
+# release automation; any production publishing must fail closed until the
+# historic Tauri updater trust is recovered or existing clients migrated.
+# Historical reference ONLY. Do not restore to .github/workflows.
 name: Release
 
 on:
