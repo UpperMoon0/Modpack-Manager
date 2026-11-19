@@ -1,0 +1,52 @@
+name: One-time updater signer identity proof
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: modpack-manager-one-time-signer-proof
+  cancel-in-progress: false
+jobs:
+  prove:
+    if: github.repository == 'UpperMoon0/Modpack-Manager' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - name: Prove historical signer identity without exporting secret
+        shell: bash
+        env:
+          RAW_TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          set +x
+          umask 077
+          test -n "$RAW_TAURI_SIGNING_PRIVATE_KEY"
+          test -n "$RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+          stage="$(mktemp -d)"
+          trap 'rm -rf -- "$stage"' EXIT
+          python3 - "$stage" <<'PY'
+          import base64, hashlib, json, os, pathlib, sys
+          dest = pathlib.Path(sys.argv[1])
+          config = json.loads(pathlib.Path('src-tauri/tauri.conf.json').read_text())
+          public = base64.b64decode(config['plugins']['updater']['pubkey'], validate=True)
+          record = base64.b64decode(public.splitlines()[1], validate=True)
+          expected = '213b2487163f83490decb54ebfbc457cfae7f36ffd48ef46a4719c313f207e9b'
+          assert hashlib.sha256(record).hexdigest() == expected, 'shipped verifier mismatch'
+          (dest / 'tauri.pub').write_bytes(public)
+          (dest / 'probe.bin').write_bytes(b'NsTut old-key transition signer identity proof 2026-11-19')
+          (dest / 'tauri.key').write_text(os.environ['RAW_TAURI_SIGNING_PRIVATE_KEY'].strip(), encoding='utf-8')
+          PY
+          ./node_modules/.bin/tauri signer sign "$stage/probe.bin" --private-key-path "$stage/tauri.key" --password "$RAW_TAURI_SIGNING_PRIVATE_KEY_PASSWORD" --app-version 1.0.15 > /dev/null
+          base64 --decode "$stage/probe.bin.sig" > "$stage/probe.minisig"
+          sudo apt-get update -qq > /dev/null
+          sudo apt-get install -y -qq minisign > /dev/null
+          minisign -Vm "$stage/probe.bin" -p "$stage/tauri.pub" -x "$stage/probe.minisig" > /dev/null
+          echo 'LEGACY_SIGNER_IDENTITY_VERIFIED sha256=213b2487163f83490decb54ebfbc457cfae7f36ffd48ef46a4719c313f207e9b'
