@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npm run test:release
+      - run: npm run build
+      - run: node --check scripts/prepare-release.mjs
+      - run: node --check scripts/prepare-windows-signing.mjs
+      - name: Exercise Windows signing config helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/prepare-windows-signing.mjs 0123456789ABCDEF0123456789ABCDEF01234567
+          node - <<'NODE'
+          const fs = require("fs");
+          const config = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+          const windows = config.bundle?.windows ?? {};
+          if (windows.certificateThumbprint !== "0123456789ABCDEF0123456789ABCDEF01234567") process.exit(1);
+          if (windows.digestAlgorithm !== "sha256") process.exit(1);
+          if (!windows.timestampUrl) process.exit(1);
+          NODE
+          git checkout -- src-tauri/tauri.conf.json
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p patch-core -p modpackctl
+      - run: cargo clippy -p patch-core -p modpackctl --all-targets -- -D warnings
+      - name: Validate promoted TFG fresh install and updates
+        run: scripts/check-tfg-promotion.sh "$RUNNER_TEMP/tfg-smoke"
+
+  tauri-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm install --no-audit --no-fund
+      - run: npm run tauri build -- --debug
+
+  tauri-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - run: npm install --no-audit --no-fund
+      - run: npm run tauri:linux -- --debug
+      - name: Upload Linux test installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: modpack-manager-linux-x86_64-debug
+          path: |
+            target/debug/bundle/deb/*.deb
+            target/debug/bundle/appimage/*.AppImage
+          if-no-files-found: error
