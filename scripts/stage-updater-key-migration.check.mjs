@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { planMigration, LEGACY_FEED, LEGACY_SHA256, NEW_FEED } from "./stage-updater-key-migration.mjs";
 
-const baseline = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+const LEGACY_PUBKEY = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU4QzE0RjU2OTUyQkMzNEIKUldSTHd5dVZWay9CV0xOZnI2enR3b1habTFqemRvVGVBN2M0VzltQmtuc1R6WnBqR2tEYyt3dmQK";
+const baseline = {
+  identifier: "dev.nstut.modpack-manager",
+  version: "1.0.1",
+  plugins: { updater: {
+    pubkey: LEGACY_PUBKEY,
+    requireSignedVersion: true,
+    endpoints: [LEGACY_FEED]
+  }}
+};
 function candidate(replacement = 1) {
   const bytes = Buffer.alloc(42, replacement);
   bytes.write("Ed", 0, "ascii");
