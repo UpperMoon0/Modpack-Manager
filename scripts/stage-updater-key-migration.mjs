@@ -72,7 +72,9 @@ export function stage(root, publicKeyPath) {
     [configPath, JSON.stringify(result.config, null, 2) + "\n"],
     [packagePath, JSON.stringify(pkg, null, 2) + "\n"],
     [cargoPath, updatedCargo],
+    [path.join(root, "updater-v2/approved-public.sha256"), result.digest + "\n"],
   ];
+  fs.mkdirSync(path.join(root, "updater-v2"), { recursive: true });
   for (const [file, value] of changes) {
     const staging = file + ".kan68-staging";
     fs.writeFileSync(staging, value, { flag: "wx", mode: 0o600 });
