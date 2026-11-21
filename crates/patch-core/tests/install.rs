@@ -46,6 +46,20 @@ fn current_base_fixture() -> (tempfile::TempDir, PatchManifest) {
     (_source, manifest)
 }
 
+fn base_01318_fixture() -> (tempfile::TempDir, PatchManifest) {
+    let (source, mut manifest) = base_01317_fixture();
+    manifest.version = "0.13.18-nstut.1".into();
+    for path in &mut manifest.required_paths {
+        *path = path.replace("0.13.17", "0.13.18");
+    }
+    for operation in &mut manifest.operations {
+        if let Operation::MigratePack { marker, .. } = operation {
+            *marker = ".nstut-tfg-base-0.13.18".into();
+        }
+    }
+    (source, manifest)
+}
+
 fn base_01317_fixture() -> (tempfile::TempDir, PatchManifest) {
     let (source, mut manifest) = current_base_fixture();
     manifest.version = "0.13.17-nstut.1".into();
@@ -62,7 +76,7 @@ fn base_01317_fixture() -> (tempfile::TempDir, PatchManifest) {
 
 #[tokio::test]
 async fn installs_empty_client_and_exports_a_complete_updateable_prism_instance() {
-    for (_source, m) in [fixture(false), current_base_fixture(), base_01317_fixture()] {
+    for (_source, m) in [fixture(false), current_base_fixture(), base_01317_fixture(), base_01318_fixture()] {
         let parent = tempfile::tempdir().unwrap();
         let dest = parent.path().join("fresh");
         let result = install_client(&m, "test.json", &dest, None).await.unwrap();
@@ -179,7 +193,7 @@ fn rejects_overlay_only_unknown_bases_and_missing_parent() {
     assert!(plan_client_install(&m, &parent.path().join("new")).is_err());
     for version in [
         "0.13.16-nstut.1",
-        "0.13.18-nstut.1",
+        "0.13.19-nstut.1",
         "0.14.0-nstut.1",
         "0.13.15-nstut.1\nInjected=true",
     ] {
