@@ -1,0 +1,31 @@
+{
+  "notes": "Modpack Manager signed desktop update",
+  "platforms": {
+    "linux-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTSG9LN1JKU0NWaVZZSXltUE8wTVlsQ1hxdnFOZStRSFA5QmFEdWVYTVBndUFHSTFmSWJjLzg0dlFxNlFOTzFQUFB6ai9ZSVg2ODE2MEJrMWdoT2xld0pSVXk4K29WVFEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzQ5OTgzCWZpbGU6TW9kcGFjay5NYW5hZ2VyXzEuMC4xN19hbWQ2NC5BcHBJbWFnZQl2ZXJzaW9uOjEuMC4xNwpmczlxSDlMaUhlRFhOTHNLcjJLY1BEZllwZXNFaUZXUHUvQmRSd3FNYytlZll5dHUxTVpUUndqTktLMUhQKzhyVUNpNVdkMWNJdDZ2ZHo5S0Njb2pCdz09Cg==",
+      "url": "https://github.com/UpperMoon0/Modpack-Manager/releases/download/v1.0.17/Modpack.Manager_1.0.17_amd64.AppImage"
+    },
+    "linux-x86_64-appimage": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTSG9LN1JKU0NWaVZZSXltUE8wTVlsQ1hxdnFOZStRSFA5QmFEdWVYTVBndUFHSTFmSWJjLzg0dlFxNlFOTzFQUFB6ai9ZSVg2ODE2MEJrMWdoT2xld0pSVXk4K29WVFEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzQ5OTgzCWZpbGU6TW9kcGFjay5NYW5hZ2VyXzEuMC4xN19hbWQ2NC5BcHBJbWFnZQl2ZXJzaW9uOjEuMC4xNwpmczlxSDlMaUhlRFhOTHNLcjJLY1BEZllwZXNFaUZXUHUvQmRSd3FNYytlZll5dHUxTVpUUndqTktLMUhQKzhyVUNpNVdkMWNJdDZ2ZHo5S0Njb2pCdz09Cg==",
+      "url": "https://github.com/UpperMoon0/Modpack-Manager/releases/download/v1.0.17/Modpack.Manager_1.0.17_amd64.AppImage"
+    },
+    "linux-x86_64-deb": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTSG9LN1JKU0NWaWNETTMzdzFZeHBQTzlQb3FmVUNGYzRtcDNzYkVZS3BGTHg3NUZkSjVHa2o0WGZMb3JiSC9JMkFlLzB4ZG41S1lpcU5DQzNza05JcXZpK3VNVi82MXdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzQ5OTg0CWZpbGU6TW9kcGFjay5NYW5hZ2VyXzEuMC4xN19hbWQ2NC5kZWIJdmVyc2lvbjoxLjAuMTcKTGZPYjBPMTA0TmYyRGUvbnA4eXBzQUsxNTFBT0RlMyttK0wvUVdxQ05BK1JEaUNPSWY2ZVlXejcrZyswdGVjRWVxcHNIWThkTHpxQ3FTS2JEN0gxQXc9PQo=",
+      "url": "https://github.com/UpperMoon0/Modpack-Manager/releases/download/v1.0.17/Modpack.Manager_1.0.17_amd64.deb"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTSG9LN1JKU0NWaVU1eGMxZEFidVR2RTVCK2d3dm5YZXI4MFlrYWZLbDRxY2Q5d3lpdWlnY1pVWGRSQnJTTUVxZWdlclZLT1h5VUdEZXFMWnpxUmNSNG96MWd6RC9vdlFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzQ5OTg1CWZpbGU6TW9kcGFjay5NYW5hZ2VyXzEuMC4xN194NjRfZW4tVVMubXNpCXZlcnNpb246MS4wLjE3CjFwU29LSkVEOHZQdTFnNkh2VGNtbGtnditsN2lHcjJMTTlwVHpRb2pCbUFPVnI1NUJ2bDFqQkNqQjJ5dVBDdUVkV2FUVlNqaEpWTWloRGNYWE5LbUJnPT0K",
+      "url": "https://github.com/UpperMoon0/Modpack-Manager/releases/download/v1.0.17/Modpack.Manager_1.0.17_x64_en-US.msi"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTSG9LN1JKU0NWaVU1eGMxZEFidVR2RTVCK2d3dm5YZXI4MFlrYWZLbDRxY2Q5d3lpdWlnY1pVWGRSQnJTTUVxZWdlclZLT1h5VUdEZXFMWnpxUmNSNG96MWd6RC9vdlFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzQ5OTg1CWZpbGU6TW9kcGFjay5NYW5hZ2VyXzEuMC4xN194NjRfZW4tVVMubXNpCXZlcnNpb246MS4wLjE3CjFwU29LSkVEOHZQdTFnNkh2VGNtbGtnditsN2lHcjJMTTlwVHpRb2pCbUFPVnI1NUJ2bDFqQkNqQjJ5dVBDdUVkV2FUVlNqaEpWTWloRGNYWE5LbUJnPT0K",
+      "url": "https://github.com/UpperMoon0/Modpack-Manager/releases/download/v1.0.17/Modpack.Manager_1.0.17_x64_en-US.msi"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTSG9LN1JKU0NWaVdWWUZDSGt6aGVIMkJOdEZScFROSUxyWEVRRWtWUS9hQ3RING03dXRFcXFyS3hDdVlQS2x0ZjJQU0xWaTRheUdJYVF2SHNrclhRdGpNVFl0dkNNM3dRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzQ5OTg0CWZpbGU6TW9kcGFjay5NYW5hZ2VyXzEuMC4xN194NjQtc2V0dXAuZXhlCXZlcnNpb246MS4wLjE3CjZ4eDc4WnFRZ3ZJR0k4TzUySTNrcGZLc043Wk81OVFmUXpkSkkrUEw4c2hhU05vU0JzOGt2SWRqTnU1c0ZEcmdlbFJ2RjA1RnVsbDJoRTk1d0dGZUNRPT0K",
+      "url": "https://github.com/UpperMoon0/Modpack-Manager/releases/download/v1.0.17/Modpack.Manager_1.0.17_x64-setup.exe"
+    }
+  },
+  "pub_date": "2026-11-22T12:19:45.410209Z",
+  "version": "1.0.17"
+}
