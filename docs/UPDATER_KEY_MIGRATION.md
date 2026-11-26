@@ -1,6 +1,10 @@
 # KAN-68: lost Tauri updater signing key — manual trust migration
 
-Status: **staging only, not a published release**. The old deployed clients
+Status: **new-key channel operational since v1.0.17**. The historical
+migration sequence below records the original recovery procedure, not the
+current service state. The protected Jenkins publisher verifies native
+artifacts and activates the public new-key feed; the legacy v1.0.14 channel
+remains frozen. The old deployed clients
 (v1.0.1–v1.0.14) all embed the legacy minisign verifier. They cannot accept a
 new signing key through Tauri's existing signed update mechanism. Never weaken
 signature validation or claim that an unsigned bridge exists.
@@ -27,8 +31,9 @@ verification. The **public** minisign .pub file is safe to commit; the private
 key and password must never appear in GitHub, a Jenkins worker, logs, PRs or
 artifacts.
 
-The protected cloud-1 Azure identity currently cannot read those secrets.
-Grant only \`Key Vault Secrets User\` on both exact secret scopes to the
+During initial migration the protected cloud-1 Azure identity could not read
+those secrets. The protected signing path was subsequently provisioned and
+verified. For recovery or re-provisioning, grant only \`Key Vault Secrets User\` on both exact secret scopes to the
 existing protected host identity. No vault-wide role, new worker permission,
 or GitHub Actions fallback is needed.
 
