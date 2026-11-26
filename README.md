@@ -1,5 +1,15 @@
 # Modpack Manager
 
+## Release verification (1.0.18)
+
+The signed updater release validator now requires all six platform entries,
+including Windows NSIS and Debian packages. It checks the four installer
+identities, exact signed filename/version comments, signature asset hashes and
+sizes, and the complete hosted checksum/CLI inventory. Actual cryptographic
+verification of installer bytes remains the responsibility of the protected
+Jenkins publisher and Tauri updater. Existing installations and settings are
+unchanged.
+
 ## Core repair (1.0.11)
 
 Missing or modified managed core JARs can be repaired after a completed base

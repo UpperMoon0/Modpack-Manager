@@ -1,56 +1,82 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { verifyDesktopRelease } from "./verify-desktop-release.mjs";
 
+const VERSION = "1.0.18";
+const TAG = "v" + VERSION;
+const KEY = Buffer.alloc(8, 7);
+const platforms = {
+  "windows-x86_64": "manager_1.0.18_x64_en-US.msi",
+  "windows-x86_64-msi": "manager_1.0.18_x64_en-US.msi",
+  "windows-x86_64-nsis": "manager_1.0.18_x64-setup.exe",
+  "linux-x86_64": "manager_1.0.18_amd64.AppImage",
+  "linux-x86_64-appimage": "manager_1.0.18_amd64.AppImage",
+  "linux-x86_64-deb": "manager_1.0.18_amd64.deb"
+};
+function encode(text) { return Buffer.from(text).toString("base64"); }
+function signature(name, version = VERSION, key = KEY) {
+  const record = Buffer.concat([Buffer.from("ED"), key, Buffer.alloc(64, 1)]);
+  return encode(`untrusted comment: signature\n${record.toString("base64")}\ntrusted comment: timestamp:1\tfile:${name}\tversion:${version}\n${Buffer.alloc(64, 2).toString("base64")}\n`);
+}
+function asset(name, bytes = "payload") {
+  return {name, size: Buffer.byteLength(bytes), digest: "sha256:" + createHash("sha256").update(bytes).digest("hex")};
+}
 function fixture() {
-  const payload = Buffer.alloc(74, 1).toString("base64");
-  const encoded = Buffer.from(`untrusted comment: test\n${payload}\n`).toString("base64");
-  const manifest = { version: "1.2.3", platforms: {} };
-  const filenames = ["manager.msi", "manager.AppImage"];
-  for (const [i, platform] of ["windows-x86_64", "linux-x86_64"].entries()) {
-    manifest.platforms[platform] = {
-      signature: encoded,
-      url: `https://github.com/UpperMoon0/Modpack-Manager/releases/download/v1.2.3/${filenames[i]}`
-    };
+  const pubkey = encode("untrusted comment: minisign public key TEST\n" +
+    Buffer.concat([Buffer.from("Ed"), KEY, Buffer.alloc(32, 3)]).toString("base64") + "\n");
+  const manifest = { version: VERSION, platforms: {} };
+  for (const [platform, name] of Object.entries(platforms)) {
+    manifest.platforms[platform] = {signature:signature(name),
+      url:`https://github.com/UpperMoon0/Modpack-Manager/releases/download/${TAG}/${name}`};
   }
-  const assets = [...filenames, ...filenames.map((name) => `${name}.sig`), "manager.deb",
-    "SHA256SUMS-windows.txt", "SHA256SUMS-linux.txt", "modpackctl-linux-x86_64.tar.gz",
-    "modpackctl-linux-x86_64.tar.gz.sha256"].map((name) => ({ name }));
-  return { manifest, assets, pubkey: encoded };
+  const names = [...new Set(Object.values(platforms))];
+  const assets = [...names.map(n => asset(n)), ...names.map(n => asset(n+".sig", signature(n))),
+    ...["latest.json","SHA256SUMS-windows.txt","SHA256SUMS-linux.txt","modpackctl-linux-x86_64.tar.gz",
+      "modpackctl-linux-x86_64.tar.gz.sha256"].map(n => asset(n))];
+  return {manifest, assets, pubkey};
 }
-
-test("accepts a complete two-platform release", () => {
-  const { manifest, assets, pubkey } = fixture();
-  verifyDesktopRelease("v1.2.3", manifest, assets, pubkey);
-});
-
-for (const platform of ["windows-x86_64", "linux-x86_64"]) {
-  test(`rejects missing ${platform} metadata`, () => {
-    const { manifest, assets, pubkey } = fixture();
-    delete manifest.platforms[platform];
-    assert.throws(() => verifyDesktopRelease("v1.2.3", manifest, assets, pubkey), /Missing .* updater entry/);
+function verify(f) { return verifyDesktopRelease(TAG, f.manifest, f.assets, f.pubkey); }
+test("accepts complete six-platform four-installer metadata", () => verify(fixture()));
+for (const platform of Object.keys(platforms)) {
+  test("rejects missing " + platform, () => {
+    const f=fixture();delete f.manifest.platforms[platform];
+    assert.throws(() => verify(f), /platform metadata/);
   });
 }
-
-test("rejects stale updater versions and URLs", () => {
-  const { manifest, assets, pubkey } = fixture();
-  assert.throws(() => verifyDesktopRelease("v1.2.4", manifest, assets, pubkey), /version/);
-  manifest.platforms["linux-x86_64"].url = manifest.platforms["linux-x86_64"].url.replace("v1.2.3", "v1.2.2");
-  assert.throws(() => verifyDesktopRelease("v1.2.3", manifest, assets, pubkey), /URL/);
-});
-
-test("rejects signatures from a different updater key", () => {
-  const { manifest, assets, pubkey } = fixture();
-  manifest.platforms["linux-x86_64"].signature = Buffer.from(
-    `untrusted comment: wrong key\n${Buffer.alloc(74, 2).toString("base64")}\n`).toString("base64");
-  assert.throws(() => verifyDesktopRelease("v1.2.3", manifest, assets, pubkey), /embedded updater key/);
-});
-
-for (const name of ["manager.AppImage", "manager.AppImage.sig", "manager.deb",
-  "SHA256SUMS-linux.txt", "modpackctl-linux-x86_64.tar.gz"]) {
-  test(`rejects a release missing ${name}`, () => {
-    const { manifest, assets, pubkey } = fixture();
-    assert.throws(() => verifyDesktopRelease("v1.2.3", manifest,
-      assets.filter((asset) => asset.name !== name), pubkey), /Missing/);
+for (const name of [...new Set(Object.values(platforms))].flatMap(n => [n,n+".sig"]).concat(
+  ["latest.json","SHA256SUMS-linux.txt","SHA256SUMS-windows.txt","modpackctl-linux-x86_64.tar.gz",
+  "modpackctl-linux-x86_64.tar.gz.sha256"])) {
+  test("rejects missing " + name, () => {
+    const f=fixture();f.assets=f.assets.filter(a=>a.name!==name);
+    assert.throws(() => verify(f), /Missing/);
   });
 }
+test("rejects stale version, unsafe URL and wrong installer type", () => {
+  const f=fixture();f.manifest.version="1.0.17";assert.throws(()=>verify(f), /version/);
+  f.manifest.version=VERSION;
+  f.manifest.platforms["linux-x86_64"].url=f.manifest.platforms["linux-x86_64"].url.replace(TAG,"v1.0.17");
+  assert.throws(()=>verify(f), /URL/);
+  f.manifest.platforms["linux-x86_64"].url=f.manifest.platforms["linux-x86_64-deb"].url;
+  assert.throws(()=>verify(f), /filename/);
+});
+test("rejects wrong key, wrong signed version, and wrong signed filename", () => {
+  for (const sig of [signature(platforms["linux-x86_64-deb"], VERSION, Buffer.alloc(8, 9)),
+    signature(platforms["linux-x86_64-deb"],"1.0.17"),signature("different.deb")]) {
+    const f=fixture();f.manifest.platforms["linux-x86_64-deb"].signature=sig;
+    assert.throws(()=>verify(f), /key|filename|version/);
+  }
+});
+test("rejects changed hosted signature metadata and duplicate or unexpected assets", () => {
+  const f=fixture();const sig=f.assets.find(a=>a.name.endsWith(".sig"));sig.digest="sha256:"+"0".repeat(64);
+  assert.throws(()=>verify(f), /signature digest/);
+  const dupe=fixture();dupe.assets.push(dupe.assets[0]);assert.throws(()=>verify(dupe), /Duplicate/);
+  const extra=fixture();extra.assets.push(asset("extra.txt"));assert.throws(()=>verify(extra), /Unexpected/);
+});
+test("rejects divergent default and explicit platform aliases", () => {
+  const f=fixture();const name="alternate_1.0.18_x64_en-US.msi";const sig=signature(name);
+  f.manifest.platforms["windows-x86_64-msi"]={signature:sig,
+    url:`https://github.com/UpperMoon0/Modpack-Manager/releases/download/${TAG}/${name}`};
+  f.assets.push(asset(name),asset(name+".sig",sig));
+  assert.throws(()=>verify(f), /aliases/);
+});
